@@ -69,6 +69,7 @@ function ensure_column(PDO $pdo, string $table, string $column, string $definiti
 
 function ensure_runtime_schema(PDO $pdo): void
 {
+    ensure_column($pdo, 'players', 'base_bid', 'base_bid DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER image_path');
     ensure_column($pdo, 'players', 'current_bid', 'current_bid DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER base_bid');
     ensure_column($pdo, 'players', 'is_sold', 'is_sold TINYINT(1) NOT NULL DEFAULT 0 AFTER is_active');
     ensure_column($pdo, 'players', 'sold_amount', 'sold_amount DECIMAL(12,2) NULL AFTER is_sold');
@@ -372,7 +373,7 @@ try {
             $playerId = normalize_player_id($body['player_id'] ?? null);
             $amount = normalize_amount($body['amount'] ?? null);
             $source = (string) ($body['source'] ?? 'manual');
-            $allowedSources = ['manual', 'place', 'auto'];
+            $allowedSources = ['manual', 'place'];
 
             if (!in_array($source, $allowedSources, true)) {
                 $source = 'manual';

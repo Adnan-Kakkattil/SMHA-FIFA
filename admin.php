@@ -35,6 +35,16 @@ function validate_csrf(): void
     }
 }
 
+function normalize_amount_input(string $value): float
+{
+    $amount = filter_var($value, FILTER_VALIDATE_FLOAT);
+    if ($amount === false || $amount < 0 || $amount > 999999999) {
+        throw new RuntimeException('Player base amount must be between 0 and 999,999,999.');
+    }
+
+    return round((float) $amount, 2);
+}
+
 function save_player_image(array $file): string
 {
     if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
@@ -99,6 +109,7 @@ try {
         if ($action === 'add_player') {
             $playerName = trim((string) ($_POST['player_name'] ?? ''));
             $teamId = (int) ($_POST['team_id'] ?? 0);
+            $baseBid = normalize_amount_input((string) ($_POST['base_bid'] ?? '0'));
 
             if ($playerName === '') {
                 throw new RuntimeException('Player name is required.');
@@ -106,13 +117,15 @@ try {
 
             $imagePath = save_player_image($_FILES['player_image'] ?? []);
             $stmt = $pdo->prepare(
-                'INSERT INTO players (team_id, name, image_path)
-                 VALUES (:team_id, :name, :image_path)'
+                'INSERT INTO players (team_id, name, image_path, base_bid, current_bid)
+                 VALUES (:team_id, :name, :image_path, :base_bid, :current_bid)'
             );
             $stmt->execute([
                 'team_id' => $teamId > 0 ? $teamId : null,
                 'name' => $playerName,
                 'image_path' => $imagePath,
+                'base_bid' => $baseBid,
+                'current_bid' => $baseBid,
             ]);
 
             $_SESSION['flash_success'] = 'Player added successfully.';
@@ -444,6 +457,10 @@ try {
                         <input name="player_name" maxlength="140" required placeholder="Example: Aarav Menon">
                     </label>
                     <label>
+                        Base amount (₹)
+                        <input name="base_bid" type="number" min="0" max="999999999" step="1" required placeholder="Example: 5000">
+                    </label>
+                    <label>
                         Team
                         <select name="team_id">
                             <option value="">No team</option>
@@ -472,7 +489,11 @@ try {
                                 <img src="<?= e($player['image_path']) ?>" alt="<?= e($player['name']) ?>">
                                 <div>
                                     <strong><?= e($player['name']) ?></strong>
-                                    <span class="meta"><?= e($player['team_name'] ?: 'No team') ?></span>
+                                    <span class="meta">
+                                        <?= e($player['team_name'] ?: 'No team') ?>
+                                        &middot; Base ₹<?= number_format((float) $player['base_bid'], 0) ?>
+                                        &middot; Current ₹<?= number_format((float) $player['current_bid'], 0) ?>
+                                    </span>
                                 </div>
                             </div>
                         </div>

@@ -747,8 +747,7 @@ Sound
 </div>
 <!-- Action Bar -->
 <div class="bid-action-bar w-full max-w-2xl flex flex-col md:flex-row gap-sm">
-<button id="incrementBid" class="flex-1 py-sm bg-white/5 border border-white/10 rounded-full font-bold uppercase tracking-widest text-xs hover:bg-white/10 transition-all hover:scale-[1.02]">Increment +₹100k</button>
-<button id="placeBid" class="flex-[2] py-sm bg-primary text-white rounded-full font-extrabold uppercase tracking-widest text-sm shadow-[0_0_30px_rgba(0,150,255,0.6)] pulse-glow-primary hover:scale-105 active:scale-95 transition-all">PLACE BID NOW</button>
+<button id="placeBid" class="flex-[2] py-sm bg-primary text-white rounded-full font-extrabold uppercase tracking-widest text-sm shadow-[0_0_30px_rgba(0,150,255,0.6)] pulse-glow-primary hover:scale-105 active:scale-95 transition-all">PLACE BID NOW +₹500</button>
 <button id="closeBid" class="flex-1 py-sm close-bid-button rounded-full font-extrabold uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-95 transition-all">Close Bid</button>
 </div>
 </div>
@@ -787,7 +786,6 @@ Sound
         const API_URL = 'api.php';
         const csrfToken = '<?= h($csrfToken) ?>';
         const bidEl = document.getElementById('currentBid');
-        const incrementButton = document.getElementById('incrementBid');
         const placeBidButton = document.getElementById('placeBid');
         const closeBidButton = document.getElementById('closeBid');
         const soundToggle = document.getElementById('soundToggle');
@@ -986,7 +984,6 @@ Sound
         }
 
         function setBidControlsEnabled(enabled) {
-            if (incrementButton) incrementButton.disabled = !enabled;
             if (placeBidButton) placeBidButton.disabled = !enabled;
             if (closeBidButton) closeBidButton.disabled = !enabled;
         }
@@ -1371,12 +1368,8 @@ Sound
             }
         }
 
-        incrementButton?.addEventListener('click', () => {
-            animateBidIncrease(100000, 'manual', incrementButton);
-        });
-
         placeBidButton?.addEventListener('click', () => {
-            animateBidIncrease(250000, 'place', placeBidButton);
+            animateBidIncrease(500, 'place', placeBidButton);
         });
 
         closeBidButton?.addEventListener('click', closeCurrentBid);
