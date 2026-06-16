@@ -1130,10 +1130,14 @@ Sound
         }
 
         function setBidControlsEnabled(enabled) {
-            if (closeBidButton) closeBidButton.disabled = !enabled;
+            setCloseBidEnabled(enabled);
             document.querySelectorAll('.team-bid-button, .team-bid-input').forEach((control) => {
                 control.disabled = !enabled;
             });
+        }
+
+        function setCloseBidEnabled(enabled) {
+            if (closeBidButton) closeBidButton.disabled = !enabled;
         }
 
         function captureLeaderboardLayout() {
@@ -1337,6 +1341,7 @@ Sound
             if (playerRole) playerRole.textContent = String(player.role || 'PLAYER | AUCTION').toUpperCase();
             if (bidEl) bidEl.textContent = formatRupee(currentBid);
             if (closeBidButton) closeBidButton.textContent = 'Close Bid';
+            setCloseBidEnabled(currentPlayer.teamId !== null && currentPlayer.teamId !== undefined);
             restartClass(playerWrap, 'player-switching', 650);
         }
 
@@ -1486,6 +1491,7 @@ Sound
                         if (currentPlayer && currentPlayer.id === playerId) {
                             currentPlayer.currentBid = startBid;
                             currentPlayer.teamId = previousTeamId;
+                            setCloseBidEnabled(previousTeamId !== null && previousTeamId !== undefined);
                         }
                         if (bidEl) bidEl.textContent = formatRupee(startBid);
                     }
@@ -1530,6 +1536,7 @@ Sound
             currentPlayer.teamId = teamId;
             currentPlayer.teamName = teamName || currentPlayer.teamName || null;
             closedWinnerTeamId = null;
+            setCloseBidEnabled(true);
             unlockAudio(false);
 
             animateNumber(startBid, nextBid);
@@ -1549,6 +1556,11 @@ Sound
 
         async function closeCurrentBid() {
             if (bidClosed || !currentPlayer || auctionPlayers.length === 0) return;
+            if (currentPlayer.teamId === null || currentPlayer.teamId === undefined) {
+                showBidNotice('Bid first');
+                setCloseBidEnabled(false);
+                return;
+            }
             unlockAudio(false);
             bidClosed = true;
             closedWinnerTeamId = currentPlayer.teamId ?? null;
