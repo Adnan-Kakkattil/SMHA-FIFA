@@ -134,6 +134,33 @@ function save_player_image(array $file): string
     return UPLOAD_URL . '/' . $filename;
 }
 
+function uploaded_file_at(array $files, int $index): array
+{
+    return [
+        'name' => $files['name'][$index] ?? '',
+        'type' => $files['type'][$index] ?? '',
+        'tmp_name' => $files['tmp_name'][$index] ?? '',
+        'error' => $files['error'][$index] ?? UPLOAD_ERR_NO_FILE,
+        'size' => $files['size'][$index] ?? 0,
+    ];
+}
+
+function is_empty_player_upload(array $file): bool
+{
+    return (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE
+        && trim((string) ($file['name'] ?? '')) === '';
+}
+
+function local_upload_path(string $imagePath): string
+{
+    $prefix = UPLOAD_URL . '/';
+    if (!str_starts_with($imagePath, $prefix)) {
+        return '';
+    }
+
+    return UPLOAD_DIR . DIRECTORY_SEPARATOR . basename($imagePath);
+}
+
 try {
     $pdo = db();
     ensure_team_budget_column($pdo);
@@ -192,27 +219,106 @@ try {
             redirect_admin();
         }
 
-        if ($action === 'add_player') {
-            $playerName = trim((string) ($_POST['player_name'] ?? ''));
-            $baseBid = normalize_amount_input((string) ($_POST['base_bid'] ?? '0'), 'Player base amount');
+        if ($action === 'add_player' || $action === 'add_players') {
+            if ($action === 'add_player') {
+                $playerRows = [[
+                    'name' => trim((string) ($_POST['player_name'] ?? '')),
+                    'base_bid' => (string) ($_POST['base_bid'] ?? ''),
+                    'file' => $_FILES['player_image'] ?? [],
+                    'row' => 1,
+                ]];
+            } else {
+                $names = is_array($_POST['player_names'] ?? null) ? $_POST['player_names'] : [];
+                $baseBids = is_array($_POST['base_bids'] ?? null) ? $_POST['base_bids'] : [];
+                $images = is_array($_FILES['player_images'] ?? null) ? $_FILES['player_images'] : [];
+                $imageNames = is_array($images['name'] ?? null) ? $images['name'] : [];
+                $rowCount = max(count($names), count($baseBids), count($imageNames));
 
-            if ($playerName === '') {
-                throw new RuntimeException('Player name is required.');
+                if ($rowCount > 40) {
+                    throw new RuntimeException('You can upload up to 40 players at a time.');
+                }
+
+                $playerRows = [];
+                for ($index = 0; $index < $rowCount; $index += 1) {
+                    $file = uploaded_file_at($images, $index);
+                    $name = trim((string) ($names[$index] ?? ''));
+                    $baseBid = trim((string) ($baseBids[$index] ?? ''));
+
+                    if ($name === '' && $baseBid === '' && is_empty_player_upload($file)) {
+                        continue;
+                    }
+
+                    $playerRows[] = [
+                        'name' => $name,
+                        'base_bid' => $baseBid,
+                        'file' => $file,
+                        'row' => $index + 1,
+                    ];
+                }
             }
 
-            $imagePath = save_player_image($_FILES['player_image'] ?? []);
-            $stmt = $pdo->prepare(
-                'INSERT INTO players (name, image_path, base_bid, current_bid)
-                 VALUES (:name, :image_path, :base_bid, :current_bid)'
-            );
-            $stmt->execute([
-                'name' => $playerName,
-                'image_path' => $imagePath,
-                'base_bid' => $baseBid,
-                'current_bid' => $baseBid,
-            ]);
+            if (!$playerRows) {
+                throw new RuntimeException('Add at least one player row.');
+            }
 
-            $_SESSION['flash_success'] = 'Player added successfully.';
+            $preparedPlayers = [];
+            foreach ($playerRows as $playerRow) {
+                $rowNumber = (int) $playerRow['row'];
+                if ($playerRow['name'] === '') {
+                    throw new RuntimeException('Player name is required on row ' . $rowNumber . '.');
+                }
+
+                if ((string) $playerRow['base_bid'] === '') {
+                    throw new RuntimeException('Base amount is required on row ' . $rowNumber . '.');
+                }
+
+                if (is_empty_player_upload($playerRow['file'])) {
+                    throw new RuntimeException('Player image is required on row ' . $rowNumber . '.');
+                }
+
+                $preparedPlayers[] = [
+                    'name' => $playerRow['name'],
+                    'base_bid' => normalize_amount_input((string) $playerRow['base_bid'], 'Player base amount on row ' . $rowNumber),
+                    'file' => $playerRow['file'],
+                ];
+            }
+
+            $savedImagePaths = [];
+            $pdo->beginTransaction();
+            try {
+                $stmt = $pdo->prepare(
+                    'INSERT INTO players (name, image_path, base_bid, current_bid)
+                     VALUES (:name, :image_path, :base_bid, :current_bid)'
+                );
+
+                foreach ($preparedPlayers as $player) {
+                    $imagePath = save_player_image($player['file']);
+                    $savedImagePaths[] = $imagePath;
+                    $stmt->execute([
+                        'name' => $player['name'],
+                        'image_path' => $imagePath,
+                        'base_bid' => $player['base_bid'],
+                        'current_bid' => $player['base_bid'],
+                    ]);
+                }
+
+                $pdo->commit();
+            } catch (Throwable $exception) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+
+                foreach ($savedImagePaths as $imagePath) {
+                    $localPath = local_upload_path($imagePath);
+                    if ($localPath !== '' && is_file($localPath)) {
+                        unlink($localPath);
+                    }
+                }
+
+                throw $exception;
+            }
+
+            $_SESSION['flash_success'] = count($preparedPlayers) . ' player' . (count($preparedPlayers) === 1 ? '' : 's') . ' added successfully.';
             redirect_admin();
         }
 
@@ -508,6 +614,46 @@ try {
         font-size: 10px;
     }
 
+    .bulk-player-form {
+        gap: 16px;
+    }
+
+    .bulk-player-list {
+        display: grid;
+        gap: 12px;
+    }
+
+    .bulk-player-row {
+        display: grid;
+        grid-template-columns: minmax(150px, 1fr) minmax(120px, 0.7fr) minmax(180px, 1fr) auto;
+        gap: 10px;
+        align-items: end;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.045);
+        padding: 12px;
+    }
+
+    .bulk-remove {
+        min-width: 42px;
+        padding: 0 12px;
+        background: rgba(255, 82, 82, 0.16);
+        color: #ffd4d4;
+        box-shadow: inset 0 0 0 1px rgba(255, 82, 82, 0.22);
+    }
+
+    .bulk-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .secondary-button {
+        background: rgba(255, 255, 255, 0.08);
+        color: #fff;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+    }
+
     .player {
         display: grid;
         grid-template-columns: 62px minmax(0, 1fr);
@@ -527,6 +673,10 @@ try {
         .grid {
             grid-template-columns: 1fr;
             display: grid;
+        }
+
+        .bulk-player-row {
+            grid-template-columns: 1fr;
         }
     }
 </style>
@@ -616,24 +766,32 @@ try {
 
         <div class="stack">
             <article class="card">
-                <h2>Add Player</h2>
-                <p class="sub">The newest uploaded active player appears on the auction board</p>
-                <form method="post" enctype="multipart/form-data">
+                <h2>Add Players</h2>
+                <p class="sub">Bulk upload student players with name, base amount, and image</p>
+                <form method="post" enctype="multipart/form-data" class="bulk-player-form" id="bulkPlayerForm">
                     <input type="hidden" name="csrf_token" value="<?= e($_SESSION['csrf_token']) ?>">
-                    <input type="hidden" name="action" value="add_player">
-                    <label>
-                        Player name
-                        <input name="player_name" maxlength="140" required placeholder="Example: Aarav Menon">
-                    </label>
-                    <label>
-                        Base amount (₹)
-                        <input name="base_bid" type="number" min="0" max="999999999" step="1" required placeholder="Example: 5000">
-                    </label>
-                    <label>
-                        Player image
-                        <input type="file" name="player_image" accept="image/jpeg,image/png,image/webp,image/gif" required>
-                    </label>
-                    <button type="submit">Add Player</button>
+                    <input type="hidden" name="action" value="add_players">
+                    <div class="bulk-player-list" id="bulkPlayerList">
+                        <div class="bulk-player-row" data-player-row>
+                            <label>
+                                Player name
+                                <input name="player_names[]" maxlength="140" required placeholder="Example: Aarav Menon">
+                            </label>
+                            <label>
+                                Base amount (₹)
+                                <input name="base_bids[]" type="number" min="0" max="999999999" step="1" required placeholder="Example: 5000">
+                            </label>
+                            <label>
+                                Player image
+                                <input type="file" name="player_images[]" accept="image/jpeg,image/png,image/webp,image/gif" required>
+                            </label>
+                            <button type="button" class="bulk-remove" data-remove-player-row aria-label="Remove player row">Remove</button>
+                        </div>
+                    </div>
+                    <div class="bulk-actions">
+                        <button type="button" class="secondary-button" id="addPlayerRow">Add Row</button>
+                        <button type="submit">Add Players</button>
+                    </div>
                 </form>
             </article>
 
@@ -663,5 +821,49 @@ try {
         </div>
     </section>
 </main>
+<script>
+(() => {
+    const list = document.getElementById('bulkPlayerList');
+    const addButton = document.getElementById('addPlayerRow');
+
+    if (!list || !addButton) return;
+
+    function refreshRemoveButtons() {
+        const rows = list.querySelectorAll('[data-player-row]');
+        rows.forEach((row) => {
+            const removeButton = row.querySelector('[data-remove-player-row]');
+            if (removeButton) {
+                removeButton.disabled = rows.length <= 1;
+            }
+        });
+    }
+
+    addButton.addEventListener('click', () => {
+        const firstRow = list.querySelector('[data-player-row]');
+        if (!firstRow) return;
+
+        const row = firstRow.cloneNode(true);
+        row.querySelectorAll('input').forEach((input) => {
+            input.value = '';
+        });
+        list.appendChild(row);
+        row.querySelector('input[name="player_names[]"]')?.focus();
+        refreshRemoveButtons();
+    });
+
+    list.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-remove-player-row]');
+        if (!button) return;
+
+        const rows = list.querySelectorAll('[data-player-row]');
+        if (rows.length <= 1) return;
+
+        button.closest('[data-player-row]')?.remove();
+        refreshRemoveButtons();
+    });
+
+    refreshRemoveButtons();
+})();
+</script>
 </body>
 </html>
