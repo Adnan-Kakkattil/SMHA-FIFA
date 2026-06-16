@@ -328,6 +328,73 @@ $csrfToken = (string) $_SESSION['csrf_token'];
             transition: background 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
         }
 
+        .team-bid-controls {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        input.team-bid-input {
+            appearance: textfield;
+            -moz-appearance: textfield;
+            color-scheme: dark;
+            width: 100%;
+            min-height: 34px;
+            border: 1px solid rgba(0, 150, 255, 0.34);
+            border-radius: 999px;
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.035)),
+                rgba(4, 11, 18, 0.96);
+            color: #ffffff !important;
+            caret-color: #00c853;
+            font-family: "Space Grotesk", sans-serif;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 0 12px;
+            outline: none;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 16px rgba(0, 150, 255, 0.1);
+        }
+
+        input.team-bid-input::placeholder {
+            color: rgba(255, 255, 255, 0.42);
+        }
+
+        input.team-bid-input::-webkit-outer-spin-button,
+        input.team-bid-input::-webkit-inner-spin-button {
+            margin: 0;
+            filter: invert(1);
+            opacity: 0.45;
+        }
+
+        input.team-bid-input:focus {
+            background:
+                linear-gradient(180deg, rgba(0, 150, 255, 0.18), rgba(0, 200, 83, 0.08)),
+                rgba(4, 11, 18, 0.98);
+            border-color: rgba(0, 150, 255, 0.72);
+            box-shadow: 0 0 18px rgba(0, 150, 255, 0.18);
+        }
+
+        .team-bid-button {
+            min-height: 34px;
+            border-radius: 999px;
+            padding: 0 14px;
+            background: linear-gradient(90deg, #00c853, #0096ff);
+            color: #04140b;
+            font-family: "Space Grotesk", sans-serif;
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .team-bid-button:disabled,
+        .team-bid-input:disabled {
+            cursor: not-allowed;
+            filter: grayscale(0.42);
+            opacity: 0.48;
+        }
+
         .ranking-footer {
             margin-top: 18px;
             padding-top: 14px;
@@ -747,7 +814,6 @@ Sound
 </div>
 <!-- Action Bar -->
 <div class="bid-action-bar w-full max-w-2xl flex flex-col md:flex-row gap-sm">
-<button id="placeBid" class="flex-[2] py-sm bg-primary text-white rounded-full font-extrabold uppercase tracking-widest text-sm shadow-[0_0_30px_rgba(0,150,255,0.6)] pulse-glow-primary hover:scale-105 active:scale-95 transition-all">PLACE BID NOW +₹500</button>
 <button id="closeBid" class="flex-1 py-sm close-bid-button rounded-full font-extrabold uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-95 transition-all">Close Bid</button>
 </div>
 </div>
@@ -786,7 +852,6 @@ Sound
         const API_URL = 'api.php';
         const csrfToken = '<?= h($csrfToken) ?>';
         const bidEl = document.getElementById('currentBid');
-        const placeBidButton = document.getElementById('placeBid');
         const closeBidButton = document.getElementById('closeBid');
         const soundToggle = document.getElementById('soundToggle');
         const auctionPanel = document.querySelector('.auction-card-panel');
@@ -984,8 +1049,10 @@ Sound
         }
 
         function setBidControlsEnabled(enabled) {
-            if (placeBidButton) placeBidButton.disabled = !enabled;
             if (closeBidButton) closeBidButton.disabled = !enabled;
+            document.querySelectorAll('.team-bid-button, .team-bid-input').forEach((control) => {
+                control.disabled = !enabled;
+            });
         }
 
         function captureLeaderboardLayout() {
@@ -1083,6 +1150,7 @@ Sound
 
             const accents = ['#00c853', '#0096ff', '#ff5252', 'rgba(255,255,255,0.32)', 'rgba(255,255,255,0.32)'];
             const maxAmount = Math.max(...teams.map((team) => Number(team.amount) || 0), 1);
+            const minimumBid = Math.max(0, Math.round(Number(currentBid) || 0) + 500);
 
             teams.forEach((team, index) => {
                 const rank = index + 1;
@@ -1105,6 +1173,10 @@ Sound
                     </div>
                     <div class="w-full h-2 bg-white/10 rounded-full overflow-hidden">
                         <div class="leader-bar h-full" style="width:${width}%; background:${accent}; box-shadow:0 0 10px ${accent};"></div>
+                    </div>
+                    <div class="team-bid-controls">
+                        <input class="team-bid-input" data-team-bid-input="${team.id}" type="number" min="${minimumBid}" step="500" value="${minimumBid}" placeholder="Amount" inputmode="numeric" style="background-color:#07111b;color:#ffffff;" ${bidClosed || !currentPlayer ? 'disabled' : ''}>
+                        <button class="team-bid-button" data-team-bid-button="${team.id}" type="button" ${bidClosed || !currentPlayer ? 'disabled' : ''}>Bid</button>
                     </div>`;
                 leaderboardList.appendChild(row);
 
@@ -1174,16 +1246,19 @@ Sound
             try {
                 const data = await apiGet('state');
                 auctionPlayers = Array.isArray(data.players) ? data.players : [];
-                renderLeaderboard(Array.isArray(data.leaderboard) ? data.leaderboard : []);
+                const teams = Array.isArray(data.teams) ? data.teams : (Array.isArray(data.leaderboard) ? data.leaderboard : []);
 
                 if (!auctionPlayers.length) {
                     setNoPlayersState();
+                    renderLeaderboard(teams);
                     return;
                 }
 
                 if (resetPlayer || !currentPlayer || !auctionPlayers.some((player) => player.id === currentPlayer.id)) {
                     loadPlayer(0);
                 }
+
+                renderLeaderboard(teams);
             } catch (error) {
                 console.error(error);
                 setNoPlayersState('Database not ready');
@@ -1280,11 +1355,11 @@ Sound
             }, duration + 140);
         }
 
-        function syncBid(playerId, nextBid, startBid, source) {
-            apiPost('bid', { player_id: playerId, amount: nextBid, source })
+        function syncBid(playerId, teamId, nextBid, startBid, previousTeamId, source) {
+            apiPost('bid', { player_id: playerId, team_id: teamId, amount: nextBid, source })
                 .then((data) => {
                     auctionPlayers = Array.isArray(data.players) ? data.players : auctionPlayers;
-                    renderLeaderboard(Array.isArray(data.leaderboard) ? data.leaderboard : []);
+                    renderLeaderboard(Array.isArray(data.teams) ? data.teams : (Array.isArray(data.leaderboard) ? data.leaderboard : []));
                     const fresh = auctionPlayers.find((player) => player.id === playerId);
                     if (fresh) {
                         currentPlayer = fresh;
@@ -1296,25 +1371,36 @@ Sound
                         currentBid = startBid;
                         if (currentPlayer && currentPlayer.id === playerId) {
                             currentPlayer.currentBid = startBid;
+                            currentPlayer.teamId = previousTeamId;
                         }
                         if (bidEl) bidEl.textContent = formatRupee(startBid);
                     }
                 });
         }
 
-        function animateBidIncrease(amount, source = 'manual', triggerButton = null) {
+        function placeTeamBid(teamId, bidAmount, triggerButton = null) {
             if (bidClosed || !currentPlayer || auctionPlayers.length === 0) return;
-            const startBid = currentBid;
-            const nextBid = currentBid + amount;
-            currentBid = nextBid;
-            currentPlayer.currentBid = nextBid;
+            const nextBid = Math.round(Number(bidAmount) || 0);
+            const minimumBid = currentBid + 500;
 
-            if (source !== 'auto') {
-                unlockAudio(false);
+            if (nextBid < minimumBid) {
+                const row = triggerButton?.closest?.('.leaderboard-item');
+                const input = row?.querySelector?.('.team-bid-input');
+                if (input) input.value = String(minimumBid);
+                restartClass(row, 'rank-moving', 900);
+                return;
             }
 
+            const startBid = currentBid;
+            const previousTeamId = currentPlayer.teamId ?? null;
+            const amount = nextBid - startBid;
+            currentBid = nextBid;
+            currentPlayer.currentBid = nextBid;
+            currentPlayer.teamId = teamId;
+            unlockAudio(false);
+
             animateNumber(startBid, nextBid);
-            showBidBurst(amount, source);
+            showBidBurst(amount, 'place');
             playBidSound();
             restartClass(bidEl, 'bid-counting', 950);
             restartClass(playerWrap, 'bid-surge', 950);
@@ -1335,7 +1421,7 @@ Sound
                 topLeaderBar.style.width = `${Math.min(100, 12 + added)}%`;
             }
 
-            syncBid(currentPlayer.id, nextBid, startBid, source);
+            syncBid(currentPlayer.id, teamId, nextBid, startBid, previousTeamId, 'place');
         }
 
         async function closeCurrentBid() {
@@ -1354,7 +1440,7 @@ Sound
             try {
                 const closedPlayerId = currentPlayer.id;
                 const data = await apiPost('close', { player_id: closedPlayerId, sold_amount: currentBid });
-                renderLeaderboard(Array.isArray(data.leaderboard) ? data.leaderboard : []);
+                renderLeaderboard(Array.isArray(data.teams) ? data.teams : (Array.isArray(data.leaderboard) ? data.leaderboard : []));
                 window.setTimeout(() => {
                     auctionPlayers = Array.isArray(data.players) ? data.players : [];
                     loadPlayer(0);
@@ -1368,8 +1454,24 @@ Sound
             }
         }
 
-        placeBidButton?.addEventListener('click', () => {
-            animateBidIncrease(500, 'place', placeBidButton);
+        leaderboardList?.addEventListener('click', (event) => {
+            const button = event.target.closest('[data-team-bid-button]');
+            if (!button) return;
+            const teamId = Number(button.dataset.teamBidButton || 0);
+            const row = button.closest('.leaderboard-item');
+            const input = row?.querySelector('.team-bid-input');
+            placeTeamBid(teamId, input?.value, button);
+        });
+
+        leaderboardList?.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter') return;
+            const input = event.target.closest('[data-team-bid-input]');
+            if (!input) return;
+            event.preventDefault();
+            const teamId = Number(input.dataset.teamBidInput || 0);
+            const row = input.closest('.leaderboard-item');
+            const button = row?.querySelector('.team-bid-button');
+            placeTeamBid(teamId, input.value, button);
         });
 
         closeBidButton?.addEventListener('click', closeCurrentBid);
@@ -1383,7 +1485,7 @@ Sound
         }, { once: true });
 
         window.smhaAuction = {
-            raiseBid: animateBidIncrease,
+            bidForTeam: placeTeamBid,
             closeBid: () => closeBidButton?.click(),
             refresh: () => loadAuctionState(false)
         };

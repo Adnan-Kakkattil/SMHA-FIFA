@@ -15,11 +15,11 @@ CREATE TABLE IF NOT EXISTS teams (
 
 CREATE TABLE IF NOT EXISTS players (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  team_id INT UNSIGNED NULL,
+  team_id INT UNSIGNED NULL COMMENT 'Current or winning bidding team; null before a team bids',
   name VARCHAR(140) NOT NULL,
   image_path VARCHAR(255) NOT NULL,
-  base_bid DECIMAL(12,2) NOT NULL DEFAULT 0.00,
-  current_bid DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  base_bid DECIMAL(12,2) NOT NULL DEFAULT 0.00 COMMENT 'Starting auction amount for this player',
+  current_bid DECIMAL(12,2) NOT NULL DEFAULT 0.00 COMMENT 'Current highest bid amount for this player',
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   is_sold TINYINT(1) NOT NULL DEFAULT 0,
   sold_amount DECIMAL(12,2) NULL,

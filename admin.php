@@ -108,7 +108,6 @@ try {
 
         if ($action === 'add_player') {
             $playerName = trim((string) ($_POST['player_name'] ?? ''));
-            $teamId = (int) ($_POST['team_id'] ?? 0);
             $baseBid = normalize_amount_input((string) ($_POST['base_bid'] ?? '0'));
 
             if ($playerName === '') {
@@ -117,11 +116,10 @@ try {
 
             $imagePath = save_player_image($_FILES['player_image'] ?? []);
             $stmt = $pdo->prepare(
-                'INSERT INTO players (team_id, name, image_path, base_bid, current_bid)
-                 VALUES (:team_id, :name, :image_path, :base_bid, :current_bid)'
+                'INSERT INTO players (name, image_path, base_bid, current_bid)
+                 VALUES (:name, :image_path, :base_bid, :current_bid)'
             );
             $stmt->execute([
-                'team_id' => $teamId > 0 ? $teamId : null,
                 'name' => $playerName,
                 'image_path' => $imagePath,
                 'base_bid' => $baseBid,
@@ -459,15 +457,6 @@ try {
                     <label>
                         Base amount (₹)
                         <input name="base_bid" type="number" min="0" max="999999999" step="1" required placeholder="Example: 5000">
-                    </label>
-                    <label>
-                        Team
-                        <select name="team_id">
-                            <option value="">No team</option>
-                            <?php foreach ($teams as $team): ?>
-                                <option value="<?= (int) $team['id'] ?>"><?= e($team['name']) ?></option>
-                            <?php endforeach; ?>
-                        </select>
                     </label>
                     <label>
                         Player image
