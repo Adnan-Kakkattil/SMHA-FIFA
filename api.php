@@ -45,7 +45,7 @@ function require_csrf(): void
 
 function ensure_column(PDO $pdo, string $table, string $column, string $definition): void
 {
-    $allowedTables = ['players'];
+    $allowedTables = ['players', 'teams'];
     if (!in_array($table, $allowedTables, true)) {
         throw new InvalidArgumentException('Invalid schema check.');
     }
@@ -69,6 +69,8 @@ function ensure_column(PDO $pdo, string $table, string $column, string $definiti
 
 function ensure_runtime_schema(PDO $pdo): void
 {
+    ensure_column($pdo, 'teams', 'budget_total', 'budget_total DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER name');
+
     ensure_column($pdo, 'players', 'base_bid', 'base_bid DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER image_path');
     ensure_column($pdo, 'players', 'current_bid', 'current_bid DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER base_bid');
     ensure_column($pdo, 'players', 'is_sold', 'is_sold TINYINT(1) NOT NULL DEFAULT 0 AFTER is_active');
@@ -154,7 +156,7 @@ function normalize_team_id(mixed $value): int
 
 function bidding_team(PDO $pdo, int $teamId): array
 {
-    $stmt = $pdo->prepare('SELECT id, name FROM teams WHERE id = :id LIMIT 1');
+    $stmt = $pdo->prepare('SELECT id, name, budget_total FROM teams WHERE id = :id LIMIT 1');
     $stmt->execute(['id' => $teamId]);
     $team = $stmt->fetch();
 
@@ -163,6 +165,46 @@ function bidding_team(PDO $pdo, int $teamId): array
     }
 
     return $team;
+}
+
+function team_account(PDO $pdo, int $teamId, bool $forUpdate = false): array
+{
+    $lock = $forUpdate ? ' FOR UPDATE' : '';
+    $stmt = $pdo->prepare('SELECT id, name, budget_total FROM teams WHERE id = :id LIMIT 1' . $lock);
+    $stmt->execute(['id' => $teamId]);
+    $team = $stmt->fetch();
+
+    if (!$team) {
+        throw new RuntimeException('Team is not available for bidding.');
+    }
+
+    $spentStmt = $pdo->prepare(
+        'SELECT COALESCE(SUM(GREATEST(COALESCE(sold_amount, 0), COALESCE(current_bid, 0), COALESCE(base_bid, 0))), 0)
+         FROM players
+         WHERE team_id = :team_id AND is_active = 1 AND COALESCE(is_sold, 0) = 1'
+    );
+    $spentStmt->execute(['team_id' => $teamId]);
+    $spent = (float) $spentStmt->fetchColumn();
+
+    $reservedStmt = $pdo->prepare(
+        'SELECT COALESCE(SUM(GREATEST(COALESCE(current_bid, 0), COALESCE(base_bid, 0))), 0)
+         FROM players
+         WHERE team_id = :team_id AND is_active = 1 AND COALESCE(is_sold, 0) = 0'
+    );
+    $reservedStmt->execute(['team_id' => $teamId]);
+    $reserved = (float) $reservedStmt->fetchColumn();
+    $budget = (float) $team['budget_total'];
+    $available = $budget - $spent - $reserved;
+
+    return [
+        'id' => (int) $team['id'],
+        'name' => (string) $team['name'],
+        'budgetTotal' => (int) round($budget),
+        'spentAmount' => (int) round($spent),
+        'reservedAmount' => (int) round($reserved),
+        'availableAmount' => (int) round(max(0, $available)),
+        'rawAvailableAmount' => $available,
+    ];
 }
 
 function current_player(PDO $pdo, int $playerId, bool $forUpdate = false): array
@@ -314,9 +356,17 @@ function leaderboard(PDO $pdo, ?int $limit = 5): array
 {
     $sql = 'SELECT t.id, t.name, COALESCE(tl.amount, 0) AS amount,
             COALESCE(tl.bid_count, 0) AS bid_count,
-            COALESCE(tl.sold_count, 0) AS sold_count
+            COALESCE(tl.sold_count, 0) AS sold_count,
+            COALESCE(t.budget_total, 0) AS budget_total,
+            COALESCE(reserved.reserved_amount, 0) AS reserved_amount
          FROM teams t
          LEFT JOIN team_leaderboard tl ON tl.team_id = t.id
+         LEFT JOIN (
+            SELECT team_id, COALESCE(SUM(GREATEST(COALESCE(current_bid, 0), COALESCE(base_bid, 0))), 0) AS reserved_amount
+            FROM players
+            WHERE is_active = 1 AND COALESCE(is_sold, 0) = 0 AND team_id IS NOT NULL
+            GROUP BY team_id
+         ) reserved ON reserved.team_id = t.id
          ORDER BY amount DESC, t.created_at ASC, t.id ASC
     ';
 
@@ -328,11 +378,19 @@ function leaderboard(PDO $pdo, ?int $limit = 5): array
 
     $teams = [];
     foreach ($stmt->fetchAll() as $index => $team) {
+        $spent = (float) $team['amount'];
+        $reserved = (float) $team['reserved_amount'];
+        $budget = (float) $team['budget_total'];
+        $available = max(0, $budget - $spent - $reserved);
         $teams[] = [
             'rank' => $index + 1,
             'id' => (int) $team['id'],
             'name' => (string) $team['name'],
-            'amount' => (int) round((float) $team['amount']),
+            'amount' => (int) round($spent),
+            'budgetTotal' => (int) round($budget),
+            'spentAmount' => (int) round($spent),
+            'reservedAmount' => (int) round($reserved),
+            'availableAmount' => (int) round($available),
             'bidCount' => (int) $team['bid_count'],
             'soldCount' => (int) $team['sold_count'],
         ];
@@ -438,7 +496,6 @@ try {
             }
 
             $pdo->beginTransaction();
-            bidding_team($pdo, $teamId);
             $player = current_player($pdo, $playerId, true);
             $current = max((float) $player['base_bid'], (float) $player['current_bid']);
             if ($amount <= $current) {
@@ -446,6 +503,20 @@ try {
             }
 
             $previousTeamId = $player['team_id'] !== null ? (int) $player['team_id'] : null;
+            $teamAccount = team_account($pdo, $teamId, true);
+            $reservedCredit = $previousTeamId === $teamId ? $current : 0.0;
+            $maximumAllowedBid = (float) $teamAccount['rawAvailableAmount'] + $reservedCredit;
+
+            if ($amount > $maximumAllowedBid) {
+                throw new InvalidArgumentException(
+                    sprintf(
+                        '%s has only %s available for this bid.',
+                        $teamAccount['name'],
+                        '₹' . number_format(max(0, $maximumAllowedBid), 0)
+                    )
+                );
+            }
+
             insert_bid_event($pdo, $playerId, $teamId, $amount, $source);
 
             $stmt = $pdo->prepare(

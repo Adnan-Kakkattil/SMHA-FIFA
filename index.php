@@ -436,6 +436,24 @@ $csrfToken = (string) $_SESSION['csrf_token'];
             box-shadow: 0 0 16px rgba(0, 200, 83, 0.24);
         }
 
+        .team-wallet-line {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 7px;
+            margin-top: 4px;
+            color: rgba(255, 255, 255, 0.55);
+            font-family: "Space Grotesk", sans-serif;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+
+        .team-wallet-line strong {
+            color: #fff;
+            font-weight: 900;
+        }
+
         .leaderboard-item.is-leading-team {
             background: rgba(0, 150, 255, 0.12);
             box-shadow: inset 0 0 0 1px rgba(0, 150, 255, 0.28), 0 12px 28px rgba(0, 150, 255, 0.08);
@@ -517,6 +535,13 @@ $csrfToken = (string) $_SESSION['csrf_token'];
         .bid-burst.manual {
             border-color: rgba(255, 218, 55, 0.7);
             box-shadow: 0 0 30px rgba(255, 218, 55, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+        }
+
+        .bid-burst.denied {
+            border-color: rgba(255, 82, 82, 0.74);
+            background: rgba(36, 11, 13, 0.9);
+            color: #ffe0e0;
+            box-shadow: 0 0 30px rgba(255, 82, 82, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.2);
         }
 
         .leaderboard-item.bid-leader-pulse {
@@ -927,11 +952,18 @@ Sound
         let closedWinnerTeamId = null;
 
         function formatRupee(value) {
-            return `₹${Math.round(Number(value) || 0).toLocaleString('en-US')}`;
+            return `₹${Math.round(Number(value) || 0).toLocaleString('en-IN')}`;
         }
 
         function formatShortRupee(value) {
-            return `₹${((Number(value) || 0) / 1000000).toFixed(2)}M`;
+            const amount = Number(value) || 0;
+            if (Math.abs(amount) >= 1000000) {
+                return `₹${(amount / 1000000).toFixed(2)}M`;
+            }
+            if (Math.abs(amount) >= 1000) {
+                return `₹${(amount / 1000).toFixed(1)}K`;
+            }
+            return formatRupee(amount);
         }
 
         function escapeHtml(value) {
@@ -1201,11 +1233,16 @@ Sound
             teams.forEach((team, index) => {
                 const rank = index + 1;
                 const amount = Number(team.amount) || 0;
+                const availableAmount = Math.max(0, Number(team.availableAmount) || 0);
+                const reservedAmount = Math.max(0, Number(team.reservedAmount) || 0);
                 const soldCount = Number(team.soldCount) || 0;
                 const isLeadingTeam = !bidClosed && currentPlayer && Number(currentPlayer.teamId) === Number(team.id);
                 const isSoldTeam = closedWinnerTeamId !== null && Number(closedWinnerTeamId) === Number(team.id);
                 const statusLabel = isSoldTeam ? 'Sold' : (isLeadingTeam ? 'Leading' : '');
                 const statusClass = isSoldTeam ? 'sold' : 'leading';
+                const maximumBid = Math.max(0, Math.round(availableAmount + (isLeadingTeam ? currentBid : 0)));
+                const canBid = Boolean(!bidClosed && currentPlayer && maximumBid >= minimumBid);
+                const inputValue = canBid ? minimumBid : maximumBid;
                 const accent = accents[index] || accents[4];
                 const width = amount > 0 ? Math.max(10, Math.round((amount / maxAmount) * 100)) : 0;
                 const row = document.createElement('div');
@@ -1214,6 +1251,8 @@ Sound
                 row.dataset.teamName = team.name;
                 row.dataset.rank = String(rank);
                 row.dataset.amount = String(amount);
+                row.dataset.availableAmount = String(availableAmount);
+                row.dataset.maxBid = String(maximumBid);
                 row.style.borderLeftColor = accent;
                 row.innerHTML = `
                     <div class="flex justify-between items-center mb-xs">
@@ -1225,6 +1264,10 @@ Sound
                                     <span class="team-player-count">Players ${soldCount}</span>
                                     ${statusLabel ? `<span class="team-status-tag ${statusClass}">${statusLabel}</span>` : ''}
                                 </span>
+                                <span class="team-wallet-line">
+                                    <span>Avail <strong>${formatShortRupee(availableAmount)}</strong></span>
+                                    <span>Reserved <strong>${formatShortRupee(reservedAmount)}</strong></span>
+                                </span>
                             </span>
                         </div>
                         <span class="leader-amount font-bold text-white">${formatShortRupee(amount)}</span>
@@ -1233,8 +1276,8 @@ Sound
                         <div class="leader-bar h-full" style="width:${width}%; background:${accent}; box-shadow:0 0 10px ${accent};"></div>
                     </div>
                     <div class="team-bid-controls">
-                        <input class="team-bid-input" data-team-bid-input="${team.id}" type="number" min="${minimumBid}" step="500" value="${minimumBid}" placeholder="Amount" inputmode="numeric" style="background-color:#07111b;color:#ffffff;" ${bidClosed || !currentPlayer ? 'disabled' : ''}>
-                        <button class="team-bid-button" data-team-bid-button="${team.id}" type="button" ${bidClosed || !currentPlayer ? 'disabled' : ''}>Bid</button>
+                        <input class="team-bid-input" data-team-bid-input="${team.id}" type="number" min="${minimumBid}" max="${maximumBid}" step="500" value="${inputValue}" placeholder="Amount" inputmode="numeric" style="background-color:#07111b;color:#ffffff;" ${!canBid ? 'disabled' : ''}>
+                        <button class="team-bid-button" data-team-bid-button="${team.id}" type="button" ${!canBid ? 'disabled' : ''}>Bid</button>
                     </div>`;
                 leaderboardList.appendChild(row);
 
@@ -1335,6 +1378,21 @@ Sound
             }, 1600);
         }
 
+        function showBidNotice(message) {
+            if (!auctionPanel) return;
+            auctionPanel.querySelectorAll('.bid-burst').forEach((item) => item.remove());
+            const burst = document.createElement('div');
+            burst.className = 'bid-burst denied';
+            burst.textContent = message;
+            auctionPanel.appendChild(burst);
+            burst.addEventListener('animationend', () => burst.remove(), { once: true });
+            window.setTimeout(() => {
+                if (burst.isConnected) {
+                    burst.remove();
+                }
+            }, 1600);
+        }
+
         function showCloseBurst(teamName = '') {
             if (!auctionPanel) return;
             auctionPanel.querySelectorAll('.close-burst').forEach((item) => item.remove());
@@ -1422,6 +1480,7 @@ Sound
                 })
                 .catch((error) => {
                     console.error(error);
+                    showBidNotice(error.message || 'Bid rejected');
                     if (currentBid === nextBid) {
                         currentBid = startBid;
                         if (currentPlayer && currentPlayer.id === playerId) {
@@ -1442,6 +1501,16 @@ Sound
             if (nextBid < minimumBid) {
                 const input = row?.querySelector?.('.team-bid-input');
                 if (input) input.value = String(minimumBid);
+                showBidNotice(`Minimum ${formatRupee(minimumBid)}`);
+                restartClass(row, 'rank-moving', 900);
+                return;
+            }
+
+            const maximumBid = Math.round(Number(row?.dataset?.maxBid) || 0);
+            if (nextBid > maximumBid) {
+                const input = row?.querySelector?.('.team-bid-input');
+                if (input) input.value = String(maximumBid);
+                showBidNotice(`Available ${formatRupee(maximumBid)}`);
                 restartClass(row, 'rank-moving', 900);
                 return;
             }

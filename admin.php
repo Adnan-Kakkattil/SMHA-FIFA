@@ -35,14 +35,62 @@ function validate_csrf(): void
     }
 }
 
-function normalize_amount_input(string $value): float
+function normalize_amount_input(string $value, string $label = 'Amount'): float
 {
     $amount = filter_var($value, FILTER_VALIDATE_FLOAT);
     if ($amount === false || $amount < 0 || $amount > 999999999) {
-        throw new RuntimeException('Player base amount must be between 0 and 999,999,999.');
+        throw new RuntimeException($label . ' must be between 0 and 999,999,999.');
     }
 
     return round((float) $amount, 2);
+}
+
+function ensure_team_budget_column(PDO $pdo): void
+{
+    $stmt = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = :table_name
+            AND COLUMN_NAME = :column_name'
+    );
+    $stmt->execute([
+        'table_name' => 'teams',
+        'column_name' => 'budget_total',
+    ]);
+
+    if ((int) $stmt->fetchColumn() === 0) {
+        $pdo->exec("ALTER TABLE teams ADD COLUMN budget_total DECIMAL(12,2) NOT NULL DEFAULT 0.00 COMMENT 'Auction wallet allotted to this team' AFTER name");
+    }
+}
+
+function team_commitments(PDO $pdo, int $teamId): array
+{
+    $stmt = $pdo->prepare(
+        'SELECT
+            COALESCE(SUM(
+                CASE
+                    WHEN is_sold = 1 THEN GREATEST(COALESCE(sold_amount, 0), COALESCE(current_bid, 0), COALESCE(base_bid, 0))
+                    ELSE 0
+                END
+            ), 0) AS spent_amount,
+            COALESCE(SUM(
+                CASE
+                    WHEN COALESCE(is_sold, 0) = 0 THEN GREATEST(COALESCE(current_bid, 0), COALESCE(base_bid, 0))
+                    ELSE 0
+                END
+            ), 0) AS reserved_amount
+         FROM players
+         WHERE team_id = :team_id AND is_active = 1'
+    );
+    $stmt->execute(['team_id' => $teamId]);
+    $row = $stmt->fetch() ?: ['spent_amount' => 0, 'reserved_amount' => 0];
+
+    return [
+        'spent' => (float) $row['spent_amount'],
+        'reserved' => (float) $row['reserved_amount'],
+        'committed' => (float) $row['spent_amount'] + (float) $row['reserved_amount'],
+    ];
 }
 
 function save_player_image(array $file): string
@@ -88,6 +136,7 @@ function save_player_image(array $file): string
 
 try {
     $pdo = db();
+    ensure_team_budget_column($pdo);
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         validate_csrf();
@@ -95,20 +144,57 @@ try {
 
         if ($action === 'create_team') {
             $teamName = trim((string) ($_POST['team_name'] ?? ''));
+            $teamBudget = normalize_amount_input((string) ($_POST['team_budget'] ?? '0'), 'Team allotment');
 
             if ($teamName === '') {
                 throw new RuntimeException('Team name is required.');
             }
 
-            $stmt = $pdo->prepare('INSERT INTO teams (name) VALUES (:name)');
-            $stmt->execute(['name' => $teamName]);
+            $stmt = $pdo->prepare('INSERT INTO teams (name, budget_total) VALUES (:name, :budget_total)');
+            $stmt->execute([
+                'name' => $teamName,
+                'budget_total' => $teamBudget,
+            ]);
             $_SESSION['flash_success'] = 'Team created successfully.';
+            redirect_admin();
+        }
+
+        if ($action === 'update_team_budget') {
+            $teamId = filter_var($_POST['team_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            $teamBudget = normalize_amount_input((string) ($_POST['team_budget'] ?? '0'), 'Team allotment');
+
+            if (!$teamId) {
+                throw new RuntimeException('Valid team is required.');
+            }
+
+            $commitments = team_commitments($pdo, (int) $teamId);
+            if ($teamBudget < $commitments['committed']) {
+                throw new RuntimeException(
+                    'Team allotment cannot be below current sold and reserved amount of ₹' .
+                    number_format($commitments['committed'], 0) .
+                    '.'
+                );
+            }
+
+            $existsStmt = $pdo->prepare('SELECT COUNT(*) FROM teams WHERE id = :id');
+            $existsStmt->execute(['id' => (int) $teamId]);
+            if ((int) $existsStmt->fetchColumn() !== 1) {
+                throw new RuntimeException('Team was not found.');
+            }
+
+            $stmt = $pdo->prepare('UPDATE teams SET budget_total = :budget_total WHERE id = :id');
+            $stmt->execute([
+                'budget_total' => $teamBudget,
+                'id' => (int) $teamId,
+            ]);
+
+            $_SESSION['flash_success'] = 'Team allotment updated successfully.';
             redirect_admin();
         }
 
         if ($action === 'add_player') {
             $playerName = trim((string) ($_POST['player_name'] ?? ''));
-            $baseBid = normalize_amount_input((string) ($_POST['base_bid'] ?? '0'));
+            $baseBid = normalize_amount_input((string) ($_POST['base_bid'] ?? '0'), 'Player base amount');
 
             if ($playerName === '') {
                 throw new RuntimeException('Player name is required.');
@@ -139,10 +225,25 @@ try {
     }
 
     $teams = $pdo->query(
-        'SELECT t.*, COUNT(p.id) AS player_count
+        'SELECT t.*,
+            COALESCE(pc.player_count, 0) AS player_count,
+            COALESCE(tl.amount, 0) AS spent_amount,
+            COALESCE(tl.sold_count, 0) AS sold_count,
+            COALESCE(reserved.reserved_amount, 0) AS reserved_amount
          FROM teams t
-         LEFT JOIN players p ON p.team_id = t.id
-         GROUP BY t.id
+         LEFT JOIN team_leaderboard tl ON tl.team_id = t.id
+         LEFT JOIN (
+            SELECT team_id, COUNT(*) AS player_count
+            FROM players
+            WHERE team_id IS NOT NULL AND is_active = 1
+            GROUP BY team_id
+         ) pc ON pc.team_id = t.id
+         LEFT JOIN (
+            SELECT team_id, COALESCE(SUM(GREATEST(COALESCE(current_bid, 0), COALESCE(base_bid, 0))), 0) AS reserved_amount
+            FROM players
+            WHERE team_id IS NOT NULL AND is_active = 1 AND COALESCE(is_sold, 0) = 0
+            GROUP BY team_id
+         ) reserved ON reserved.team_id = t.id
          ORDER BY t.created_at DESC, t.id DESC'
     )->fetchAll();
 
@@ -365,6 +466,48 @@ try {
         font-size: 13px;
     }
 
+    .team-wallet {
+        display: grid;
+        gap: 8px;
+        min-width: min(100%, 260px);
+    }
+
+    .wallet-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+        color: rgba(255, 255, 255, 0.62);
+        font-family: "Space Grotesk", sans-serif;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+
+    .wallet-grid strong {
+        color: #fff;
+        font-size: 12px;
+    }
+
+    .budget-form {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+        margin: 0;
+    }
+
+    .budget-form input {
+        min-height: 36px;
+        border-radius: 999px;
+        font-size: 12px;
+    }
+
+    .budget-form button {
+        min-height: 36px;
+        padding: 0 12px;
+        font-size: 10px;
+    }
+
     .player {
         display: grid;
         grid-template-columns: 62px minmax(0, 1fr);
@@ -421,6 +564,10 @@ try {
                         Team name
                         <input name="team_name" maxlength="120" required placeholder="Example: Falcons FC">
                     </label>
+                    <label>
+                        Team allotment (₹)
+                        <input name="team_budget" type="number" min="0" max="999999999" step="1" required placeholder="Example: 30000000">
+                    </label>
                     <button type="submit">Create Team</button>
                 </form>
             </article>
@@ -432,10 +579,34 @@ try {
                         <div class="row"><span class="meta">No teams created yet.</span></div>
                     <?php endif; ?>
                     <?php foreach ($teams as $team): ?>
+                        <?php
+                            $budgetTotal = (float) ($team['budget_total'] ?? 0);
+                            $spentAmount = (float) ($team['spent_amount'] ?? 0);
+                            $reservedAmount = (float) ($team['reserved_amount'] ?? 0);
+                            $availableAmount = max(0, $budgetTotal - $spentAmount - $reservedAmount);
+                        ?>
                         <div class="row">
                             <div>
                                 <strong><?= e($team['name']) ?></strong>
-                                <span class="meta"><?= (int) $team['player_count'] ?> players</span>
+                                <span class="meta">
+                                    <?= (int) $team['player_count'] ?> players
+                                    &middot; <?= (int) ($team['sold_count'] ?? 0) ?> sold
+                                </span>
+                            </div>
+                            <div class="team-wallet">
+                                <div class="wallet-grid">
+                                    <span>Budget <strong>₹<?= number_format($budgetTotal, 0) ?></strong></span>
+                                    <span>Available <strong>₹<?= number_format($availableAmount, 0) ?></strong></span>
+                                    <span>Spent <strong>₹<?= number_format($spentAmount, 0) ?></strong></span>
+                                    <span>Reserved <strong>₹<?= number_format($reservedAmount, 0) ?></strong></span>
+                                </div>
+                                <form method="post" class="budget-form">
+                                    <input type="hidden" name="csrf_token" value="<?= e($_SESSION['csrf_token']) ?>">
+                                    <input type="hidden" name="action" value="update_team_budget">
+                                    <input type="hidden" name="team_id" value="<?= (int) $team['id'] ?>">
+                                    <input name="team_budget" type="number" min="<?= (int) ceil($spentAmount + $reservedAmount) ?>" max="999999999" step="1" value="<?= (int) round($budgetTotal) ?>" aria-label="Team allotment for <?= e($team['name']) ?>">
+                                    <button type="submit">Update</button>
+                                </form>
                             </div>
                         </div>
                     <?php endforeach; ?>
