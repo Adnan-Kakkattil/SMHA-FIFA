@@ -93,6 +93,38 @@ function team_commitments(PDO $pdo, int $teamId): array
     ];
 }
 
+function is_avif_image_file(string $path): bool
+{
+    $handle = fopen($path, 'rb');
+    if (!$handle) {
+        return false;
+    }
+
+    $header = fread($handle, 256);
+    fclose($handle);
+
+    if (!is_string($header) || strlen($header) < 16 || substr($header, 4, 4) !== 'ftyp') {
+        return false;
+    }
+
+    $size = unpack('N', substr($header, 0, 4))[1] ?? 0;
+    $boxLength = $size > 0 ? min($size, strlen($header)) : strlen($header);
+    $majorBrand = substr($header, 8, 4);
+    $compatibleBrands = substr($header, 16, max(0, $boxLength - 16));
+
+    if (in_array($majorBrand, ['avif', 'avis'], true)) {
+        return true;
+    }
+
+    for ($offset = 0; $offset + 4 <= strlen($compatibleBrands); $offset += 4) {
+        if (in_array(substr($compatibleBrands, $offset, 4), ['avif', 'avis'], true)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 function save_player_image(array $file): string
 {
     if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
@@ -108,13 +140,17 @@ function save_player_image(array $file): string
         'image/png' => 'png',
         'image/webp' => 'webp',
         'image/gif' => 'gif',
+        'image/avif' => 'avif',
     ];
 
     $finfo = new finfo(FILEINFO_MIME_TYPE);
     $mime = $finfo->file($file['tmp_name']);
+    if ($mime === 'application/octet-stream' && is_avif_image_file($file['tmp_name'])) {
+        $mime = 'image/avif';
+    }
 
     if (!isset($allowed[$mime])) {
-        throw new RuntimeException('Only JPG, PNG, WEBP, or GIF images are allowed.');
+        throw new RuntimeException('Only JPG, PNG, WEBP, GIF, or AVIF images are allowed.');
     }
 
     ensure_upload_dir();
@@ -783,7 +819,7 @@ try {
                             </label>
                             <label>
                                 Player image
-                                <input type="file" name="player_images[]" accept="image/jpeg,image/png,image/webp,image/gif" required>
+                                <input type="file" name="player_images[]" accept="image/jpeg,image/png,image/webp,image/gif,image/avif,.avif" required>
                             </label>
                             <button type="button" class="bulk-remove" data-remove-player-row aria-label="Remove player row">Remove</button>
                         </div>
