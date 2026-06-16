@@ -1253,6 +1253,7 @@ Sound
                 row.dataset.amount = String(amount);
                 row.dataset.availableAmount = String(availableAmount);
                 row.dataset.maxBid = String(maximumBid);
+                row.dataset.playerId = currentPlayer ? String(currentPlayer.id) : '';
                 row.style.borderLeftColor = accent;
                 row.innerHTML = `
                     <div class="flex justify-between items-center mb-xs">
@@ -1336,7 +1337,6 @@ Sound
             if (playerRole) playerRole.textContent = String(player.role || 'PLAYER | AUCTION').toUpperCase();
             if (bidEl) bidEl.textContent = formatRupee(currentBid);
             if (closeBidButton) closeBidButton.textContent = 'Close Bid';
-            setBidControlsEnabled(true);
             restartClass(playerWrap, 'player-switching', 650);
         }
 
@@ -1498,6 +1498,12 @@ Sound
             const minimumBid = currentBid + 500;
             const row = triggerButton?.closest?.('.leaderboard-item');
 
+            if (!row || row.dataset.playerId !== String(currentPlayer.id)) {
+                showBidNotice('Bid board refreshed');
+                loadAuctionState(false);
+                return;
+            }
+
             if (nextBid < minimumBid) {
                 const input = row?.querySelector?.('.team-bid-input');
                 if (input) input.value = String(minimumBid);
@@ -1566,8 +1572,10 @@ Sound
                 }
                 renderLeaderboard(Array.isArray(data.teams) ? data.teams : (Array.isArray(data.leaderboard) ? data.leaderboard : []));
                 window.setTimeout(() => {
+                    const teams = Array.isArray(data.teams) ? data.teams : (Array.isArray(data.leaderboard) ? data.leaderboard : []);
                     auctionPlayers = Array.isArray(data.players) ? data.players : [];
                     loadPlayer(0);
+                    renderLeaderboard(teams);
                 }, 3000);
             } catch (error) {
                 console.error(error);
