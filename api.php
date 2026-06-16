@@ -169,8 +169,9 @@ function current_player(PDO $pdo, int $playerId, bool $forUpdate = false): array
 {
     $lock = $forUpdate ? ' FOR UPDATE' : '';
     $stmt = $pdo->prepare(
-        'SELECT p.id, p.team_id, p.base_bid, p.current_bid
+        'SELECT p.id, p.team_id, p.base_bid, p.current_bid, t.name AS team_name
          FROM players p
+         LEFT JOIN teams t ON t.id = p.team_id
          WHERE p.id = :id AND p.is_active = 1 AND COALESCE(p.is_sold, 0) = 0
          LIMIT 1' . $lock
     );
@@ -196,6 +197,27 @@ function insert_bid_event(PDO $pdo, int $playerId, ?int $teamId, float $amount, 
         'amount' => $amount,
         'source' => $source,
     ]);
+}
+
+function winning_bid(PDO $pdo, int $playerId, bool $forUpdate = false): array
+{
+    $lock = $forUpdate ? ' FOR UPDATE' : '';
+    $stmt = $pdo->prepare(
+        "SELECT be.team_id, be.amount, t.name AS team_name
+         FROM bid_events be
+         INNER JOIN teams t ON t.id = be.team_id
+         WHERE be.player_id = :player_id AND be.team_id IS NOT NULL AND be.source <> 'close'
+         ORDER BY be.amount DESC, be.id DESC
+         LIMIT 1" . $lock
+    );
+    $stmt->execute(['player_id' => $playerId]);
+    $bid = $stmt->fetch();
+
+    if (!$bid) {
+        throw new InvalidArgumentException('At least one team bid is required before closing.');
+    }
+
+    return $bid;
 }
 
 function backfill_current_bids(PDO $pdo): void
@@ -229,7 +251,7 @@ function refresh_team_leaderboard(PDO $pdo, ?int $teamId): void
             COALESCE(SUM(
                 CASE
                     WHEN p.is_sold = 1 THEN GREATEST(COALESCE(p.sold_amount, 0), COALESCE(p.current_bid, 0), COALESCE(p.base_bid, 0))
-                    ELSE GREATEST(COALESCE(p.current_bid, 0), COALESCE(p.base_bid, 0))
+                    ELSE 0
                 END
             ), 0) AS amount,
             COALESCE((
@@ -276,6 +298,7 @@ function auction_players(PDO $pdo): array
         $players[] = [
             'id' => (int) $player['id'],
             'teamId' => $player['team_id'] !== null ? (int) $player['team_id'] : null,
+            'teamName' => $teamName !== '' ? $teamName : null,
             'name' => (string) $player['name'],
             'role' => $teamName !== '' ? 'LEADING | ' . $teamName : 'AVAILABLE | AUCTION',
             'image' => (string) $player['image_path'],
@@ -289,7 +312,9 @@ function auction_players(PDO $pdo): array
 
 function leaderboard(PDO $pdo, ?int $limit = 5): array
 {
-    $sql = 'SELECT t.id, t.name, COALESCE(tl.amount, 0) AS amount
+    $sql = 'SELECT t.id, t.name, COALESCE(tl.amount, 0) AS amount,
+            COALESCE(tl.bid_count, 0) AS bid_count,
+            COALESCE(tl.sold_count, 0) AS sold_count
          FROM teams t
          LEFT JOIN team_leaderboard tl ON tl.team_id = t.id
          ORDER BY amount DESC, t.created_at ASC, t.id ASC
@@ -308,6 +333,8 @@ function leaderboard(PDO $pdo, ?int $limit = 5): array
             'id' => (int) $team['id'],
             'name' => (string) $team['name'],
             'amount' => (int) round((float) $team['amount']),
+            'bidCount' => (int) $team['bid_count'],
+            'soldCount' => (int) $team['sold_count'],
         ];
     }
 
@@ -440,25 +467,23 @@ try {
 
         if ($action === 'close') {
             $playerId = normalize_player_id($body['player_id'] ?? null);
-            $amount = normalize_amount($body['sold_amount'] ?? $body['amount'] ?? null);
             $pdo->beginTransaction();
             $player = current_player($pdo, $playerId, true);
+            $winner = winning_bid($pdo, $playerId, true);
             $current = max((float) $player['base_bid'], (float) $player['current_bid']);
-            $soldAmount = max($amount, $current);
-            $teamId = $player['team_id'] !== null ? (int) $player['team_id'] : null;
-
-            if ($teamId === null) {
-                throw new InvalidArgumentException('At least one team bid is required before closing.');
-            }
+            $soldAmount = max((float) $winner['amount'], $current);
+            $teamId = (int) $winner['team_id'];
+            $previousTeamId = $player['team_id'] !== null ? (int) $player['team_id'] : null;
 
             insert_bid_event($pdo, $playerId, $teamId, $soldAmount, 'close');
 
             $stmt = $pdo->prepare(
                 'UPDATE players
-                 SET current_bid = :current_bid, is_sold = 1, sold_amount = :sold_amount, sold_at = NOW()
+                 SET team_id = :team_id, current_bid = :current_bid, is_sold = 1, sold_amount = :sold_amount, sold_at = NOW()
                  WHERE id = :id AND is_active = 1 AND COALESCE(is_sold, 0) = 0'
             );
             $stmt->execute([
+                'team_id' => $teamId,
                 'current_bid' => $soldAmount,
                 'sold_amount' => $soldAmount,
                 'id' => $playerId,
@@ -468,9 +493,17 @@ try {
                 throw new RuntimeException('Player was already closed.');
             }
 
+            refresh_team_leaderboard($pdo, $previousTeamId);
             refresh_team_leaderboard($pdo, $teamId);
             $pdo->commit();
-            json_response(state_payload($pdo) + ['sold' => true, 'soldAmount' => (int) round($soldAmount)]);
+            json_response(state_payload($pdo) + [
+                'sold' => true,
+                'soldAmount' => (int) round($soldAmount),
+                'winningTeam' => [
+                    'id' => $teamId,
+                    'name' => (string) ($winner['team_name'] ?? ''),
+                ],
+            ]);
         }
     }
 

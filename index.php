@@ -395,6 +395,57 @@ $csrfToken = (string) $_SESSION['csrf_token'];
             opacity: 0.48;
         }
 
+        .team-player-count {
+            display: inline-block;
+            color: rgba(255, 255, 255, 0.46);
+            font-family: "Space Grotesk", sans-serif;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .team-meta-line {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 2px;
+        }
+
+        .team-status-tag {
+            border-radius: 999px;
+            padding: 2px 7px;
+            font-family: "Space Grotesk", sans-serif;
+            font-size: 9px;
+            font-weight: 900;
+            letter-spacing: 0.1em;
+            line-height: 1;
+            text-transform: uppercase;
+        }
+
+        .team-status-tag.leading {
+            background: rgba(0, 150, 255, 0.18);
+            color: #7bd2ff;
+            box-shadow: 0 0 14px rgba(0, 150, 255, 0.2);
+        }
+
+        .team-status-tag.sold {
+            background: rgba(0, 200, 83, 0.2);
+            color: #5cff93;
+            box-shadow: 0 0 16px rgba(0, 200, 83, 0.24);
+        }
+
+        .leaderboard-item.is-leading-team {
+            background: rgba(0, 150, 255, 0.12);
+            box-shadow: inset 0 0 0 1px rgba(0, 150, 255, 0.28), 0 12px 28px rgba(0, 150, 255, 0.08);
+        }
+
+        .leaderboard-item.is-sold-team {
+            background: rgba(0, 200, 83, 0.13);
+            box-shadow: inset 0 0 0 1px rgba(0, 200, 83, 0.3), 0 16px 34px rgba(0, 200, 83, 0.1);
+        }
+
         .ranking-footer {
             margin-top: 18px;
             padding-top: 14px;
@@ -863,9 +914,6 @@ Sound
         const leaderboardList = document.getElementById('leaderboardList');
         const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-        let topLeaderRow = null;
-        let topLeaderBid = null;
-        let topLeaderBar = null;
         let auctionPlayers = [];
         let currentPlayer = null;
         let currentPlayerIndex = 0;
@@ -876,6 +924,7 @@ Sound
         let soundReady = false;
         let bidClosed = true;
         let lastRankSoundAt = 0;
+        let closedWinnerTeamId = null;
 
         function formatRupee(value) {
             return `₹${Math.round(Number(value) || 0).toLocaleString('en-US')}`;
@@ -1126,9 +1175,6 @@ Sound
         function renderLeaderboard(teams = []) {
             if (!leaderboardList) return;
             const previousLayout = captureLeaderboardLayout();
-            topLeaderRow = null;
-            topLeaderBid = null;
-            topLeaderBar = null;
             leaderboardList.innerHTML = '';
 
             if (!teams.length) {
@@ -1155,11 +1201,17 @@ Sound
             teams.forEach((team, index) => {
                 const rank = index + 1;
                 const amount = Number(team.amount) || 0;
+                const soldCount = Number(team.soldCount) || 0;
+                const isLeadingTeam = !bidClosed && currentPlayer && Number(currentPlayer.teamId) === Number(team.id);
+                const isSoldTeam = closedWinnerTeamId !== null && Number(closedWinnerTeamId) === Number(team.id);
+                const statusLabel = isSoldTeam ? 'Sold' : (isLeadingTeam ? 'Leading' : '');
+                const statusClass = isSoldTeam ? 'sold' : 'leading';
                 const accent = accents[index] || accents[4];
                 const width = amount > 0 ? Math.max(10, Math.round((amount / maxAmount) * 100)) : 0;
                 const row = document.createElement('div');
-                row.className = `relative leaderboard-item rounded-2xl bg-white/5 border-l-4 group hover:bg-white/10 transition-colors ${rank === 1 ? 'rank-top' : ''}`;
+                row.className = `relative leaderboard-item rounded-2xl bg-white/5 border-l-4 group hover:bg-white/10 transition-colors ${rank === 1 ? 'rank-top' : ''} ${isLeadingTeam ? 'is-leading-team' : ''} ${isSoldTeam ? 'is-sold-team' : ''}`;
                 row.dataset.teamId = String(team.id);
+                row.dataset.teamName = team.name;
                 row.dataset.rank = String(rank);
                 row.dataset.amount = String(amount);
                 row.style.borderLeftColor = accent;
@@ -1167,7 +1219,13 @@ Sound
                     <div class="flex justify-between items-center mb-xs">
                         <div class="flex items-center gap-sm min-w-0">
                             <span class="font-bold" style="color:${accent}">${String(rank).padStart(2, '0')}</span>
-                            <span class="font-bold text-white truncate">${escapeHtml(team.name)}</span>
+                            <span class="min-w-0">
+                                <span class="font-bold text-white truncate block">${escapeHtml(team.name)}</span>
+                                <span class="team-meta-line">
+                                    <span class="team-player-count">Players ${soldCount}</span>
+                                    ${statusLabel ? `<span class="team-status-tag ${statusClass}">${statusLabel}</span>` : ''}
+                                </span>
+                            </span>
                         </div>
                         <span class="leader-amount font-bold text-white">${formatShortRupee(amount)}</span>
                     </div>
@@ -1180,11 +1238,6 @@ Sound
                     </div>`;
                 leaderboardList.appendChild(row);
 
-                if (rank === 1) {
-                    topLeaderRow = row;
-                    topLeaderBid = row.querySelector('.leader-amount');
-                    topLeaderBar = row.querySelector('.leader-bar');
-                }
             });
 
             animateLeaderboardShift(previousLayout);
@@ -1194,6 +1247,7 @@ Sound
             currentPlayer = null;
             currentBid = 0;
             bidClosed = true;
+            closedWinnerTeamId = null;
             playerImage?.classList.add('is-hidden');
             if (playerImage) {
                 playerImage.removeAttribute('src');
@@ -1221,6 +1275,7 @@ Sound
             currentPlayer = player;
             currentBid = Number(player.currentBid ?? player.baseBid ?? 0);
             bidClosed = false;
+            closedWinnerTeamId = null;
             auctionPanel?.classList.remove('bid-closed');
             if (playerImage) {
                 playerImage.src = player.image || '';
@@ -1280,12 +1335,12 @@ Sound
             }, 1600);
         }
 
-        function showCloseBurst() {
+        function showCloseBurst(teamName = '') {
             if (!auctionPanel) return;
             auctionPanel.querySelectorAll('.close-burst').forEach((item) => item.remove());
             const burst = document.createElement('div');
             burst.className = 'close-burst';
-            burst.textContent = `Bid closed at ${formatRupee(currentBid)}`;
+            burst.textContent = teamName ? `Sold to ${teamName} at ${formatRupee(currentBid)}` : `Bid closed at ${formatRupee(currentBid)}`;
             auctionPanel.appendChild(burst);
             burst.addEventListener('animationend', () => burst.remove(), { once: true });
             window.setTimeout(() => {
@@ -1382,9 +1437,9 @@ Sound
             if (bidClosed || !currentPlayer || auctionPlayers.length === 0) return;
             const nextBid = Math.round(Number(bidAmount) || 0);
             const minimumBid = currentBid + 500;
+            const row = triggerButton?.closest?.('.leaderboard-item');
 
             if (nextBid < minimumBid) {
-                const row = triggerButton?.closest?.('.leaderboard-item');
                 const input = row?.querySelector?.('.team-bid-input');
                 if (input) input.value = String(minimumBid);
                 restartClass(row, 'rank-moving', 900);
@@ -1394,9 +1449,12 @@ Sound
             const startBid = currentBid;
             const previousTeamId = currentPlayer.teamId ?? null;
             const amount = nextBid - startBid;
+            const teamName = row?.dataset?.teamName || '';
             currentBid = nextBid;
             currentPlayer.currentBid = nextBid;
             currentPlayer.teamId = teamId;
+            currentPlayer.teamName = teamName || currentPlayer.teamName || null;
+            closedWinnerTeamId = null;
             unlockAudio(false);
 
             animateNumber(startBid, nextBid);
@@ -1405,20 +1463,10 @@ Sound
             restartClass(bidEl, 'bid-counting', 950);
             restartClass(playerWrap, 'bid-surge', 950);
             restartClass(auctionPanel, 'bid-flash', 950);
-            restartClass(topLeaderRow, 'bid-leader-pulse', 1050);
+            restartClass(row, 'bid-leader-pulse', 1050);
 
             if (triggerButton) {
                 restartClass(triggerButton, 'bid-button-fired', 560);
-            }
-
-            if (topLeaderBid) {
-                topLeaderBid.textContent = formatShortRupee(nextBid);
-            }
-
-            if (topLeaderBar) {
-                const baseBid = Number(currentPlayer.baseBid || 0);
-                const added = Math.min(88, Math.max(0, (nextBid - baseBid) / 120000));
-                topLeaderBar.style.width = `${Math.min(100, 12 + added)}%`;
             }
 
             syncBid(currentPlayer.id, teamId, nextBid, startBid, previousTeamId, 'place');
@@ -1428,18 +1476,25 @@ Sound
             if (bidClosed || !currentPlayer || auctionPlayers.length === 0) return;
             unlockAudio(false);
             bidClosed = true;
+            closedWinnerTeamId = currentPlayer.teamId ?? null;
             auctionPanel?.classList.add('bid-closed');
-            showCloseBurst();
+            showCloseBurst(currentPlayer.teamName || '');
             launchPoppers();
             playCloseSound();
             restartClass(playerWrap, 'bid-surge', 1200);
-            restartClass(topLeaderRow, 'bid-leader-pulse', 1200);
+            const winningRow = closedWinnerTeamId !== null ? leaderboardList?.querySelector(`[data-team-id="${closedWinnerTeamId}"]`) : null;
+            restartClass(winningRow, 'bid-leader-pulse', 1200);
             if (closeBidButton) closeBidButton.textContent = 'Closed';
             setBidControlsEnabled(false);
 
             try {
                 const closedPlayerId = currentPlayer.id;
                 const data = await apiPost('close', { player_id: closedPlayerId, sold_amount: currentBid });
+                if (data.winningTeam?.id) {
+                    closedWinnerTeamId = Number(data.winningTeam.id);
+                    currentPlayer.teamId = closedWinnerTeamId;
+                    currentPlayer.teamName = data.winningTeam.name || currentPlayer.teamName || null;
+                }
                 renderLeaderboard(Array.isArray(data.teams) ? data.teams : (Array.isArray(data.leaderboard) ? data.leaderboard : []));
                 window.setTimeout(() => {
                     auctionPlayers = Array.isArray(data.players) ? data.players : [];
@@ -1448,6 +1503,7 @@ Sound
             } catch (error) {
                 console.error(error);
                 bidClosed = false;
+                closedWinnerTeamId = null;
                 auctionPanel?.classList.remove('bid-closed');
                 if (closeBidButton) closeBidButton.textContent = 'Close Bid';
                 setBidControlsEnabled(true);
