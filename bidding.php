@@ -311,55 +311,73 @@
             </div>
             <div class="live-count">
                 <span>Live bid volume</span>
-                <strong id="liveCount">86%</strong>
+                <strong id="liveCount">0%</strong>
             </div>
         </header>
         <div class="chart-shell">
-            <div class="chart-grid" id="chartGrid">
-                <div class="bar-group"><div class="bar" style="--h: 42%; animation-delay: 40ms;"></div></div>
-                <div class="bar-group"><div class="bar" style="--h: 68%; animation-delay: 120ms;"></div></div>
-                <div class="bar-group"><div class="bar" style="--h: 58%; animation-delay: 200ms;"></div></div>
-                <div class="bar-group"><div class="bar hot" style="--h: 90%; animation-delay: 280ms;"></div></div>
-                <div class="bar-group"><div class="bar peak" style="--h: 100%; animation-delay: 360ms;"></div></div>
-                <div class="bar-group"><div class="bar" style="--h: 78%; animation-delay: 440ms;"></div></div>
-                <div class="bar-group"><div class="bar" style="--h: 64%; animation-delay: 520ms;"></div></div>
-            </div>
-            <div class="labels">
-                <span>09:00</span>
-                <span>09:10</span>
-                <span>09:20</span>
-                <span>09:30</span>
-                <span class="peak-label">Peak</span>
-                <span>09:50</span>
-                <span>10:00</span>
-            </div>
+            <div class="chart-grid" id="chartGrid"></div>
+            <div class="labels" id="chartLabels"></div>
         </div>
     </section>
 </main>
 <script>
-    const bars = Array.from(document.querySelectorAll('.bar'));
+    const API_URL = 'api.php';
+    const chartGrid = document.getElementById('chartGrid');
+    const chartLabels = document.getElementById('chartLabels');
     const liveCount = document.getElementById('liveCount');
-    const base = [42, 68, 58, 90, 100, 78, 64];
-    let tick = 0;
 
-    function updateVelocity() {
-        tick += 1;
-        const values = base.map((value, index) => {
-            const wave = Math.sin((tick + index) * 0.72) * 9;
-            return Math.max(20, Math.min(100, Math.round(value + wave + (Math.random() * 8 - 4))));
-        });
-        const peak = Math.max(...values);
-
-        bars.forEach((bar, index) => {
-            bar.classList.toggle('peak', values[index] === peak);
-            bar.classList.toggle('hot', values[index] >= 86 && values[index] !== peak);
-            bar.style.setProperty('--h', `${values[index]}%`);
-        });
-
-        liveCount.textContent = `${values[values.length - 1]}%`;
+    function escapeHtml(value) {
+        const div = document.createElement('div');
+        div.textContent = String(value ?? '');
+        return div.innerHTML;
     }
 
-    setInterval(updateVelocity, 3500);
+    function renderVelocity(data) {
+        const values = Array.isArray(data.values) ? data.values.slice(0, 7) : [];
+        const labels = Array.isArray(data.labels) ? data.labels.slice(0, 7) : [];
+        const peakIndex = Number.isInteger(data.peakIndex) ? data.peakIndex : -1;
+        const hasData = Boolean(data.hasData);
+        const normalized = Array.from({ length: 7 }, (_, index) => Number(values[index]) || 0);
+
+        chartGrid.innerHTML = normalized.map((value, index) => {
+            const height = hasData ? Math.max(4, Math.min(100, value)) : 2;
+            const classes = ['bar'];
+            if (index === peakIndex) {
+                classes.push('peak');
+            } else if (value >= 86) {
+                classes.push('hot');
+            }
+
+            return `<div class="bar-group"><div class="${classes.join(' ')}" style="--h: ${height}%; animation-delay: ${40 + (index * 80)}ms;"></div></div>`;
+        }).join('');
+
+        chartLabels.innerHTML = normalized.map((_, index) => {
+            const label = labels[index] || '--:--';
+            return `<span class="${index === peakIndex ? 'peak-label' : ''}">${escapeHtml(label)}</span>`;
+        }).join('');
+
+        liveCount.textContent = `${Number(data.live) || 0}%`;
+    }
+
+    async function loadVelocity() {
+        try {
+            const response = await fetch(`${API_URL}?action=velocity`, {
+                headers: { 'Accept': 'application/json' },
+                cache: 'no-store'
+            });
+            const data = await response.json();
+            if (!response.ok || !data.ok) {
+                throw new Error(data.error || 'Velocity API failed.');
+            }
+            renderVelocity(data);
+        } catch (error) {
+            console.error(error);
+            renderVelocity({ values: [], labels: [], peakIndex: null, live: 0, hasData: false });
+        }
+    }
+
+    loadVelocity();
+    setInterval(loadVelocity, 3500);
 </script>
 </body>
 </html>

@@ -1,3 +1,19 @@
+<?php
+declare(strict_types=1);
+
+session_start();
+
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+function h(?string $value): string
+{
+    return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+}
+
+$csrfToken = (string) $_SESSION['csrf_token'];
+?>
 <!DOCTYPE html>
 
 <html class="dark" lang="en"><head>
@@ -195,6 +211,30 @@
             margin-bottom: 12px;
         }
 
+        .is-hidden {
+            display: none !important;
+        }
+
+        .no-player-state {
+            position: absolute;
+            inset: 0;
+            z-index: 2;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+            background:
+                radial-gradient(circle at 50% 20%, rgba(0, 150, 255, 0.18), transparent 52%),
+                linear-gradient(145deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)),
+                #0b1117;
+            color: rgba(255, 255, 255, 0.78);
+            font-family: "Sora", sans-serif;
+            font-size: clamp(1.3rem, 2.6vw, 2.4rem);
+            font-weight: 800;
+            line-height: 1.05;
+            text-align: center;
+            text-transform: uppercase;
+        }
+
         .player-card-wrap .card-3d {
             padding: clamp(10px, 1vw, 16px);
         }
@@ -374,6 +414,10 @@
             box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4), 0 0 42px rgba(255, 218, 55, 0.14);
         }
 
+        .player-card-wrap.player-switching {
+            animation: player-switch 620ms cubic-bezier(0.2, 0, 0, 1);
+        }
+
         .auction-card-panel.bid-closed::before {
             content: "SOLD";
             position: absolute;
@@ -504,6 +548,11 @@
             100% { opacity: 0; transform: translate(-50%, -74px) scale(0.94); }
         }
 
+        @keyframes player-switch {
+            0% { opacity: 0; transform: translateY(18px) scale(0.96); filter: brightness(1.25); }
+            100% { opacity: 1; transform: translateY(0) scale(1); filter: brightness(1); }
+        }
+
         @media (prefers-reduced-motion: reduce) {
             *,
             *::before,
@@ -631,16 +680,17 @@ Sound
 <div class="card-3d-wrap w-full player-card-wrap">
 <div class="card-3d glass-panel rounded-[32px] border border-white/10 p-sm relative z-10 neon-border-multi">
 <div class="relative rounded-[24px] overflow-hidden aspect-[3/4] player-image shadow-2xl">
-<img class="w-full h-full object-cover" data-alt="Kylian Mbappé action portrait" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBYdr_zkpwPZZig3w2QXYQajC8LJMOg0Tdae9Lvj_mPf0Tif2PxzBiuZRa1v35VfdY4U6AzxeAqM80siN9J9i9pPij-FBPaorwkY0JQUcyJHtDk9pnvHh83sxUb90hO1HEY-pWS_yIce2bmJP0qeRjnJR6VsGv_h3drtT3JhhuQCHAZyFkM3k_jMZTSJRx9BmYJ6121scJZ-jilwFC7y3I-ESFlsy5J5-abCAgRxhdImVRbaRWvycZq75N_gWtUhnngbVNR5HAq1JeM"/>
+<img id="playerImage" class="w-full h-full object-cover is-hidden" data-alt="" alt="" src=""/>
+<div id="noPlayerState" class="no-player-state">Loading players</div>
 <div class="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent"></div>
 <div class="absolute bottom-md left-md">
-<div class="bg-secondary text-on-secondary text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-widest mb-xs inline-block">STRIKER | FRANCE</div>
-<h2 class="font-display-md text-2xl md:text-3xl text-white drop-shadow-lg uppercase tracking-tight">Kylian Mbappé</h2>
+<div id="playerRole" class="bg-secondary text-on-secondary text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-widest mb-xs inline-block">AUCTION</div>
+<h2 id="playerName" class="font-display-md text-2xl md:text-3xl text-white drop-shadow-lg uppercase tracking-tight">Loading players</h2>
 </div>
 </div>
 <div class="text-center py-xs">
 <p class="font-label-caps text-xs text-white/60 uppercase mb-xs tracking-widest">Current Bid</p>
-<div id="currentBid" class="text-4xl md:text-5xl current-bid-text font-extrabold text-secondary drop-shadow-[0_0_15px_rgba(0,200,83,0.5)]" aria-live="polite">₹14,250,000</div>
+<div id="currentBid" class="text-4xl md:text-5xl current-bid-text font-extrabold text-secondary drop-shadow-[0_0_15px_rgba(0,200,83,0.5)]" aria-live="polite">₹0</div>
 </div>
 </div>
 </div>
@@ -659,66 +709,17 @@ Sound
 <h3 class="text-xl font-bold text-white uppercase tracking-tighter">Leaderboard</h3>
 <span class="material-symbols-outlined text-primary">military_tech</span>
 </div>
-<div class="leaderboard-list flex-grow flex flex-col">
-<!-- Leaderboard Items -->
-<div id="topLeaderRow" class="relative leaderboard-item rounded-2xl bg-white/5 border-l-4 border-secondary group hover:bg-white/10 transition-colors">
-<div class="flex justify-between items-center mb-xs">
-<div class="flex items-center gap-sm">
-<span class="font-bold text-secondary">01</span>
-<span class="font-bold text-white">Mohammed Ashique</span>
-</div>
-<span id="topLeaderBid" class="font-bold text-white">₹14.25M</span>
-</div>
-<div class="w-full h-2 bg-white/10 rounded-full overflow-hidden">
-<div id="topLeaderBar" class="h-full bg-secondary w-[95%] shadow-[0_0_10px_rgba(0,200,83,0.5)]"></div>
-</div>
-</div>
-<div class="relative leaderboard-item rounded-2xl bg-white/5 border-l-4 border-primary group hover:bg-white/10 transition-colors">
-<div class="flex justify-between items-center mb-xs">
-<div class="flex items-center gap-sm">
-<span class="font-bold text-primary">02</span>
-<span class="font-bold text-white">Mohammed Shuhaib</span>
-</div>
-<span class="font-bold text-white">₹13.80M</span>
-</div>
-<div class="w-full h-2 bg-white/10 rounded-full overflow-hidden">
-<div class="h-full bg-primary w-[88%] shadow-[0_0_10px_rgba(0,150,255,0.5)]"></div>
-</div>
-</div>
-<div class="relative leaderboard-item rounded-2xl bg-white/5 border-l-4 border-tertiary group hover:bg-white/10 transition-colors">
-<div class="flex justify-between items-center mb-xs">
-<div class="flex items-center gap-sm">
-<span class="font-bold text-tertiary">03</span>
-<span class="font-bold text-white">Ashique</span>
-</div>
-<span class="font-bold text-white">₹12.50M</span>
-</div>
-<div class="w-full h-2 bg-white/10 rounded-full overflow-hidden">
-<div class="h-full bg-tertiary w-[75%] shadow-[0_0_10px_rgba(255,82,82,0.5)]"></div>
-</div>
-</div>
+<div id="leaderboardList" class="leaderboard-list flex-grow flex flex-col">
 <div class="relative leaderboard-item rounded-2xl bg-white/5 border-l-4 border-white/20 group hover:bg-white/10 transition-colors">
 <div class="flex justify-between items-center mb-xs">
 <div class="flex items-center gap-sm">
-<span class="font-bold text-white/40">04</span>
-<span class="font-bold text-white">D. Silva</span>
+<span class="font-bold text-white/40">--</span>
+<span class="font-bold text-white">Loading teams</span>
 </div>
-<span class="font-bold text-white">₹11.20M</span>
-</div>
-<div class="w-full h-2 bg-white/10 rounded-full overflow-hidden">
-<div class="h-full bg-white/30 w-[60%]"></div>
-</div>
-</div>
-<div class="relative leaderboard-item rounded-2xl bg-white/5 border-l-4 border-white/20 group hover:bg-white/10 transition-colors">
-<div class="flex justify-between items-center mb-xs">
-<div class="flex items-center gap-sm">
-<span class="font-bold text-white/40">05</span>
-<span class="font-bold text-white">Venture_Alpha</span>
-</div>
-<span class="font-bold text-white">₹10.95M</span>
+<span class="font-bold text-white">₹0.00M</span>
 </div>
 <div class="w-full h-2 bg-white/10 rounded-full overflow-hidden">
-<div class="h-full bg-white/30 w-[55%]"></div>
+<div class="h-full bg-white/30 w-0"></div>
 </div>
 </div>
 </div>
@@ -732,7 +733,8 @@ Sound
 </main>
 <!-- Interactive script -->
 <script>
-        // Broadcast-style bid animation
+        const API_URL = 'api.php';
+        const csrfToken = '<?= h($csrfToken) ?>';
         const bidEl = document.getElementById('currentBid');
         const incrementButton = document.getElementById('incrementBid');
         const placeBidButton = document.getElementById('placeBid');
@@ -740,24 +742,69 @@ Sound
         const soundToggle = document.getElementById('soundToggle');
         const auctionPanel = document.querySelector('.auction-card-panel');
         const playerWrap = document.querySelector('.player-card-wrap');
-        const topLeaderRow = document.getElementById('topLeaderRow');
-        const topLeaderBid = document.getElementById('topLeaderBid');
-        const topLeaderBar = document.getElementById('topLeaderBar');
+        const playerImage = document.getElementById('playerImage');
+        const noPlayerState = document.getElementById('noPlayerState');
+        const playerName = document.getElementById('playerName');
+        const playerRole = document.getElementById('playerRole');
+        const leaderboardList = document.getElementById('leaderboardList');
         const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-        let currentBid = 14250000;
+        let topLeaderRow = null;
+        let topLeaderBid = null;
+        let topLeaderBar = null;
+        let auctionPlayers = [];
+        let currentPlayer = null;
+        let currentPlayerIndex = 0;
+        let currentBid = 0;
         let activeBidTimer = null;
         let activeBidFallback = null;
         let audioContext = null;
         let soundReady = false;
-        let bidClosed = false;
+        let bidClosed = true;
 
         function formatRupee(value) {
-            return `₹${Math.round(value).toLocaleString('en-US')}`;
+            return `₹${Math.round(Number(value) || 0).toLocaleString('en-US')}`;
         }
 
         function formatShortRupee(value) {
-            return `₹${(value / 1000000).toFixed(2)}M`;
+            return `₹${((Number(value) || 0) / 1000000).toFixed(2)}M`;
+        }
+
+        function escapeHtml(value) {
+            const div = document.createElement('div');
+            div.textContent = String(value ?? '');
+            return div.innerHTML;
+        }
+
+        async function apiGet(action) {
+            const response = await fetch(`${API_URL}?action=${encodeURIComponent(action)}`, {
+                headers: { 'Accept': 'application/json' },
+                cache: 'no-store'
+            });
+            const data = await response.json();
+            if (!response.ok || !data.ok) {
+                throw new Error(data.error || 'API request failed.');
+            }
+            return data;
+        }
+
+        async function apiPost(action, payload) {
+            const response = await fetch(`${API_URL}?action=${encodeURIComponent(action)}`, {
+                method: 'POST',
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': csrfToken
+                },
+                body: JSON.stringify(payload),
+                cache: 'no-store',
+                keepalive: true
+            });
+            const data = await response.json();
+            if (!response.ok || !data.ok) {
+                throw new Error(data.error || 'API request failed.');
+            }
+            return data;
         }
 
         function updateSoundToggle() {
@@ -862,11 +909,145 @@ Sound
             window.setTimeout(() => element.classList.remove(className), duration);
         }
 
+        function setBidControlsEnabled(enabled) {
+            if (incrementButton) incrementButton.disabled = !enabled;
+            if (placeBidButton) placeBidButton.disabled = !enabled;
+            if (closeBidButton) closeBidButton.disabled = !enabled;
+        }
+
+        function renderLeaderboard(teams = []) {
+            if (!leaderboardList) return;
+            topLeaderRow = null;
+            topLeaderBid = null;
+            topLeaderBar = null;
+            leaderboardList.innerHTML = '';
+
+            if (!teams.length) {
+                leaderboardList.innerHTML = `
+                    <div class="relative leaderboard-item rounded-2xl bg-white/5 border-l-4 border-white/20 group hover:bg-white/10 transition-colors">
+                        <div class="flex justify-between items-center mb-xs">
+                            <div class="flex items-center gap-sm">
+                                <span class="font-bold text-white/40">--</span>
+                                <span class="font-bold text-white">No teams created</span>
+                            </div>
+                            <span class="font-bold text-white">${formatShortRupee(0)}</span>
+                        </div>
+                        <div class="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+                            <div class="h-full bg-white/30 w-0"></div>
+                        </div>
+                    </div>`;
+                return;
+            }
+
+            const accents = ['#00c853', '#0096ff', '#ff5252', 'rgba(255,255,255,0.32)', 'rgba(255,255,255,0.32)'];
+            const maxAmount = Math.max(...teams.map((team) => Number(team.amount) || 0), 1);
+
+            teams.forEach((team, index) => {
+                const rank = index + 1;
+                const amount = Number(team.amount) || 0;
+                const accent = accents[index] || accents[4];
+                const width = amount > 0 ? Math.max(10, Math.round((amount / maxAmount) * 100)) : 0;
+                const row = document.createElement('div');
+                row.className = 'relative leaderboard-item rounded-2xl bg-white/5 border-l-4 group hover:bg-white/10 transition-colors';
+                row.style.borderLeftColor = accent;
+                row.innerHTML = `
+                    <div class="flex justify-between items-center mb-xs">
+                        <div class="flex items-center gap-sm min-w-0">
+                            <span class="font-bold" style="color:${accent}">${String(rank).padStart(2, '0')}</span>
+                            <span class="font-bold text-white truncate">${escapeHtml(team.name)}</span>
+                        </div>
+                        <span class="leader-amount font-bold text-white">${formatShortRupee(amount)}</span>
+                    </div>
+                    <div class="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+                        <div class="leader-bar h-full" style="width:${width}%; background:${accent}; box-shadow:0 0 10px ${accent};"></div>
+                    </div>`;
+                leaderboardList.appendChild(row);
+
+                if (rank === 1) {
+                    topLeaderRow = row;
+                    topLeaderBid = row.querySelector('.leader-amount');
+                    topLeaderBar = row.querySelector('.leader-bar');
+                }
+            });
+        }
+
+        function setNoPlayersState(message = 'No players available') {
+            currentPlayer = null;
+            currentBid = 0;
+            bidClosed = true;
+            playerImage?.classList.add('is-hidden');
+            if (playerImage) {
+                playerImage.removeAttribute('src');
+                playerImage.alt = '';
+            }
+            noPlayerState?.classList.remove('is-hidden');
+            if (noPlayerState) noPlayerState.textContent = message;
+            if (playerName) playerName.textContent = message;
+            if (playerRole) playerRole.textContent = 'ADD PLAYERS IN ADMIN';
+            if (bidEl) bidEl.textContent = formatRupee(0);
+            auctionPanel?.classList.remove('bid-closed');
+            if (closeBidButton) closeBidButton.textContent = 'No Players';
+            setBidControlsEnabled(false);
+        }
+
+        function loadPlayer(index) {
+            const player = auctionPlayers[index];
+
+            if (!player) {
+                setNoPlayersState();
+                return;
+            }
+
+            currentPlayerIndex = index;
+            currentPlayer = player;
+            currentBid = Number(player.currentBid ?? player.baseBid ?? 0);
+            bidClosed = false;
+            auctionPanel?.classList.remove('bid-closed');
+            if (playerImage) {
+                playerImage.src = player.image || '';
+                playerImage.alt = `${player.name} action portrait`;
+                playerImage.dataset.alt = `${player.name} action portrait`;
+                playerImage.classList.toggle('is-hidden', !player.image);
+            }
+            noPlayerState?.classList.toggle('is-hidden', Boolean(player.image));
+
+            if (noPlayerState && !player.image) {
+                noPlayerState.textContent = 'No image available';
+            }
+
+            if (playerName) playerName.textContent = player.name;
+            if (playerRole) playerRole.textContent = String(player.role || 'PLAYER | AUCTION').toUpperCase();
+            if (bidEl) bidEl.textContent = formatRupee(currentBid);
+            if (closeBidButton) closeBidButton.textContent = 'Close Bid';
+            setBidControlsEnabled(true);
+            restartClass(playerWrap, 'player-switching', 650);
+        }
+
+        async function loadAuctionState(resetPlayer = false) {
+            try {
+                const data = await apiGet('state');
+                auctionPlayers = Array.isArray(data.players) ? data.players : [];
+                renderLeaderboard(Array.isArray(data.leaderboard) ? data.leaderboard : []);
+
+                if (!auctionPlayers.length) {
+                    setNoPlayersState();
+                    return;
+                }
+
+                if (resetPlayer || !currentPlayer || !auctionPlayers.some((player) => player.id === currentPlayer.id)) {
+                    loadPlayer(0);
+                }
+            } catch (error) {
+                console.error(error);
+                setNoPlayersState('Database not ready');
+            }
+        }
+
         function showBidBurst(amount, source) {
             if (!auctionPanel) return;
             auctionPanel.querySelectorAll('.bid-burst').forEach((item) => item.remove());
             const burst = document.createElement('div');
-            burst.className = `bid-burst ${source === 'manual' ? 'manual' : ''}`;
+            burst.className = `bid-burst ${source === 'auto' ? '' : 'manual'}`;
             burst.textContent = `${source === 'auto' ? 'Live raise' : 'Bid raised'} +₹${(amount / 1000).toFixed(0)}K`;
             auctionPanel.appendChild(burst);
             burst.addEventListener('animationend', () => burst.remove(), { once: true });
@@ -952,13 +1133,36 @@ Sound
             }, duration + 140);
         }
 
+        function syncBid(playerId, nextBid, startBid, source) {
+            apiPost('bid', { player_id: playerId, amount: nextBid, source })
+                .then((data) => {
+                    auctionPlayers = Array.isArray(data.players) ? data.players : auctionPlayers;
+                    renderLeaderboard(Array.isArray(data.leaderboard) ? data.leaderboard : []);
+                    const fresh = auctionPlayers.find((player) => player.id === playerId);
+                    if (fresh) {
+                        currentPlayer = fresh;
+                    }
+                })
+                .catch((error) => {
+                    console.error(error);
+                    if (currentBid === nextBid) {
+                        currentBid = startBid;
+                        if (currentPlayer && currentPlayer.id === playerId) {
+                            currentPlayer.currentBid = startBid;
+                        }
+                        if (bidEl) bidEl.textContent = formatRupee(startBid);
+                    }
+                });
+        }
+
         function animateBidIncrease(amount, source = 'auto', triggerButton = null) {
-            if (bidClosed) return;
+            if (bidClosed || !currentPlayer || auctionPlayers.length === 0) return;
             const startBid = currentBid;
             const nextBid = currentBid + amount;
             currentBid = nextBid;
+            currentPlayer.currentBid = nextBid;
 
-            if (source === 'manual') {
+            if (source !== 'auto') {
                 unlockAudio(false);
             }
 
@@ -979,21 +1183,16 @@ Sound
             }
 
             if (topLeaderBar) {
-                const added = Math.min(5, Math.max(0, (nextBid - 14250000) / 120000));
-                topLeaderBar.style.width = `${Math.min(100, 95 + added)}%`;
+                const baseBid = Number(currentPlayer.baseBid || 0);
+                const added = Math.min(88, Math.max(0, (nextBid - baseBid) / 120000));
+                topLeaderBar.style.width = `${Math.min(100, 12 + added)}%`;
             }
+
+            syncBid(currentPlayer.id, nextBid, startBid, source);
         }
 
-        incrementButton?.addEventListener('click', () => {
-            animateBidIncrease(100000, 'manual', incrementButton);
-        });
-
-        placeBidButton?.addEventListener('click', () => {
-            animateBidIncrease(250000, 'manual', placeBidButton);
-        });
-
-        closeBidButton?.addEventListener('click', () => {
-            if (bidClosed) return;
+        async function closeCurrentBid() {
+            if (bidClosed || !currentPlayer || auctionPlayers.length === 0) return;
             unlockAudio(false);
             bidClosed = true;
             auctionPanel?.classList.add('bid-closed');
@@ -1002,11 +1201,35 @@ Sound
             playCloseSound();
             restartClass(playerWrap, 'bid-surge', 1200);
             restartClass(topLeaderRow, 'bid-leader-pulse', 1200);
-            closeBidButton.textContent = 'Closed';
-            incrementButton.disabled = true;
-            placeBidButton.disabled = true;
-            closeBidButton.disabled = true;
+            if (closeBidButton) closeBidButton.textContent = 'Closed';
+            setBidControlsEnabled(false);
+
+            try {
+                const closedPlayerId = currentPlayer.id;
+                const data = await apiPost('close', { player_id: closedPlayerId, sold_amount: currentBid });
+                renderLeaderboard(Array.isArray(data.leaderboard) ? data.leaderboard : []);
+                window.setTimeout(() => {
+                    auctionPlayers = Array.isArray(data.players) ? data.players : [];
+                    loadPlayer(0);
+                }, 3000);
+            } catch (error) {
+                console.error(error);
+                bidClosed = false;
+                auctionPanel?.classList.remove('bid-closed');
+                if (closeBidButton) closeBidButton.textContent = 'Close Bid';
+                setBidControlsEnabled(true);
+            }
+        }
+
+        incrementButton?.addEventListener('click', () => {
+            animateBidIncrease(100000, 'manual', incrementButton);
         });
+
+        placeBidButton?.addEventListener('click', () => {
+            animateBidIncrease(250000, 'place', placeBidButton);
+        });
+
+        closeBidButton?.addEventListener('click', closeCurrentBid);
 
         soundToggle?.addEventListener('click', () => {
             unlockAudio(true);
@@ -1018,14 +1241,17 @@ Sound
 
         window.smhaAuction = {
             raiseBid: animateBidIncrease,
-            closeBid: () => closeBidButton?.click()
+            closeBid: () => closeBidButton?.click(),
+            refresh: () => loadAuctionState(false)
         };
 
         setInterval(() => {
-            if (Math.random() > 0.55) {
+            if (!bidClosed && currentPlayer && auctionPlayers.length > 0 && Math.random() > 0.55) {
                 const autoStep = (Math.floor(Math.random() * 4) + 1) * 50000;
                 animateBidIncrease(autoStep, 'auto');
             }
         }, 4500);
+
+        loadAuctionState(true);
     </script>
 </body></html>
