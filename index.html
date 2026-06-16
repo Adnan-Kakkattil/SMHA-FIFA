@@ -241,30 +241,6 @@
             padding-top: 14px;
         }
 
-        .analytics-panel {
-            flex: 0 0 170px;
-            min-height: 0;
-            padding: 18px 22px;
-        }
-
-        .analytics-title-row {
-            margin-bottom: 12px;
-        }
-
-        .velocity-chart {
-            height: 76px;
-            padding-bottom: 10px;
-        }
-
-        .velocity-chart > .flex {
-            height: 100%;
-            justify-content: flex-end;
-        }
-
-        .velocity-chart .bar-3d {
-            min-height: 14px;
-        }
-
         .auction-card-panel.bid-flash::after {
             content: "";
             position: absolute;
@@ -448,18 +424,6 @@
                 padding: 11px 14px;
             }
 
-            .analytics-panel {
-                flex-basis: 112px;
-                padding: 14px 18px;
-            }
-
-            .analytics-title-row {
-                margin-bottom: 6px;
-            }
-
-            .velocity-chart {
-                height: 34px;
-            }
         }
 
         @media (max-width: 1023px) {
@@ -484,9 +448,6 @@
                 min-height: auto;
             }
 
-            .analytics-panel {
-                flex-basis: auto;
-            }
         }
 
         @media (max-width: 640px) {
@@ -616,48 +577,6 @@
 </div>
 </aside>
 </div>
-<!-- Analytics Section -->
-<section class="glass-panel rounded-[32px] analytics-panel">
-<div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-md analytics-title-row">
-<div>
-<h3 class="text-2xl font-bold text-white uppercase tracking-tighter">Bidding Velocity</h3>
-<p class="text-xs text-white/40 uppercase tracking-widest mt-1">Real-time engagement analytics</p>
-</div>
-</div>
-<!-- 3D Bar Chart Area -->
-<div class="velocity-chart w-full flex items-end justify-between gap-sm px-md relative">
-<div class="absolute inset-x-0 bottom-md border-b border-white/10"></div>
-<!-- Bars -->
-<div class="flex flex-col items-center gap-sm flex-1 max-w-[50px]">
-<div class="w-full bg-gradient-to-t from-primary/20 to-primary bar-3d rounded-t-full" style="height: 40%"></div>
-<span class="text-[10px] font-label-caps text-white/40">09:00</span>
-</div>
-<div class="flex flex-col items-center gap-sm flex-1 max-w-[50px]">
-<div class="w-full bg-gradient-to-t from-primary/20 to-primary bar-3d rounded-t-full" style="height: 65%"></div>
-<span class="text-[10px] font-label-caps text-white/40">09:10</span>
-</div>
-<div class="flex flex-col items-center gap-sm flex-1 max-w-[50px]">
-<div class="w-full bg-gradient-to-t from-primary/20 to-primary bar-3d rounded-t-full" style="height: 55%"></div>
-<span class="text-[10px] font-label-caps text-white/40">09:20</span>
-</div>
-<div class="flex flex-col items-center gap-sm flex-1 max-w-[50px]">
-<div class="w-full bg-gradient-to-t from-secondary/20 to-secondary bar-3d rounded-t-full" style="height: 90%"></div>
-<span class="text-[10px] font-label-caps text-white/40">09:30</span>
-</div>
-<div class="flex flex-col items-center gap-sm flex-1 max-w-[50px]">
-<div class="w-full bg-gradient-to-t from-tertiary/20 to-tertiary bar-3d rounded-t-full shadow-[0_0_20px_rgba(255,82,82,0.4)]" style="height: 100%"></div>
-<span class="text-[10px] font-label-caps text-tertiary font-bold">PEAK</span>
-</div>
-<div class="flex flex-col items-center gap-sm flex-1 max-w-[50px]">
-<div class="w-full bg-gradient-to-t from-primary/20 to-primary bar-3d rounded-t-full" style="height: 75%"></div>
-<span class="text-[10px] font-label-caps text-white/40">09:50</span>
-</div>
-<div class="flex flex-col items-center gap-sm flex-1 max-w-[50px]">
-<div class="w-full bg-gradient-to-t from-primary/20 to-primary bar-3d rounded-t-full" style="height: 60%"></div>
-<span class="text-[10px] font-label-caps text-white/40">10:00</span>
-</div>
-</div>
-</section>
 </div>
 </main>
 <!-- Interactive script -->
