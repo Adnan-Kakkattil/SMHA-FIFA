@@ -718,11 +718,17 @@
 
         function showBidBurst(amount, source) {
             if (!auctionPanel) return;
+            auctionPanel.querySelectorAll('.bid-burst').forEach((item) => item.remove());
             const burst = document.createElement('div');
             burst.className = `bid-burst ${source === 'manual' ? 'manual' : ''}`;
             burst.textContent = `${source === 'auto' ? 'Live raise' : 'Bid raised'} +₹${(amount / 1000).toFixed(0)}K`;
             auctionPanel.appendChild(burst);
-            window.setTimeout(() => burst.remove(), 1100);
+            burst.addEventListener('animationend', () => burst.remove(), { once: true });
+            window.setTimeout(() => {
+                if (burst.isConnected) {
+                    burst.remove();
+                }
+            }, 1600);
         }
 
         function animateNumber(start, end) {
