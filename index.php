@@ -812,6 +812,7 @@ Sound
         let audioContext = null;
         let soundReady = false;
         let bidClosed = true;
+        let lastRankSoundAt = 0;
 
         function formatRupee(value) {
             return `₹${Math.round(Number(value) || 0).toLocaleString('en-US')}`;
@@ -952,6 +953,30 @@ Sound
             noiseBurst(ctx, now + 0.48, 0.18, 0.05, 6200);
         }
 
+        function playRankShiftSound(direction = 'up') {
+            if (!soundReady || reduceMotion) return;
+            const nowMs = Date.now();
+            if (nowMs - lastRankSoundAt < 850) return;
+            lastRankSoundAt = nowMs;
+
+            const ctx = unlockAudio(false);
+            if (!ctx) return;
+            const now = ctx.currentTime;
+
+            if (direction === 'up') {
+                noiseBurst(ctx, now, 0.038, 0.018, 5200);
+                tone(ctx, 392, now + 0.01, 0.075, 'triangle', 0.024, 587);
+                tone(ctx, 659, now + 0.07, 0.09, 'sine', 0.036, 988);
+                tone(ctx, 1318, now + 0.145, 0.11, 'sine', 0.032, 1760);
+                noiseBurst(ctx, now + 0.13, 0.07, 0.014, 9000);
+                return;
+            }
+
+            tone(ctx, 784, now, 0.08, 'triangle', 0.026, 659);
+            tone(ctx, 523, now + 0.055, 0.095, 'sine', 0.022, 392);
+            noiseBurst(ctx, now + 0.025, 0.055, 0.012, 1800);
+        }
+
         function restartClass(element, className, duration = 1000) {
             if (!element) return;
             element.classList.remove(className);
@@ -985,6 +1010,8 @@ Sound
             if (reduceMotion || !leaderboardList || previousLayout.size === 0) return;
 
             window.requestAnimationFrame(() => {
+                let rankSoundDirection = null;
+
                 leaderboardList.querySelectorAll('.leaderboard-item[data-team-id]').forEach((row) => {
                     const previous = previousLayout.get(row.dataset.teamId);
                     const currentRank = Number(row.dataset.rank || 0);
@@ -1000,6 +1027,10 @@ Sound
                     const deltaY = previous.rect.top - next.top;
                     const rankChanged = previous.rank !== currentRank;
                     const amountChanged = previous.amount !== currentAmount;
+
+                    if (rankChanged && !rankSoundDirection) {
+                        rankSoundDirection = currentRank < previous.rank ? 'up' : 'down';
+                    }
 
                     if (Math.abs(deltaX) > 1 || Math.abs(deltaY) > 1) {
                         row.animate([
@@ -1021,6 +1052,10 @@ Sound
                         restartClass(row, 'rank-moving', 1100);
                     }
                 });
+
+                if (rankSoundDirection) {
+                    window.setTimeout(() => playRankShiftSound(rankSoundDirection), 70);
+                }
             });
         }
 
@@ -1162,8 +1197,8 @@ Sound
             if (!auctionPanel) return;
             auctionPanel.querySelectorAll('.bid-burst').forEach((item) => item.remove());
             const burst = document.createElement('div');
-            burst.className = `bid-burst ${source === 'auto' ? '' : 'manual'}`;
-            burst.textContent = `${source === 'auto' ? 'Live raise' : 'Bid raised'} +₹${(amount / 1000).toFixed(0)}K`;
+            burst.className = 'bid-burst manual';
+            burst.textContent = `Bid raised +₹${(amount / 1000).toFixed(0)}K`;
             auctionPanel.appendChild(burst);
             burst.addEventListener('animationend', () => burst.remove(), { once: true });
             window.setTimeout(() => {
@@ -1270,7 +1305,7 @@ Sound
                 });
         }
 
-        function animateBidIncrease(amount, source = 'auto', triggerButton = null) {
+        function animateBidIncrease(amount, source = 'manual', triggerButton = null) {
             if (bidClosed || !currentPlayer || auctionPlayers.length === 0) return;
             const startBid = currentBid;
             const nextBid = currentBid + amount;
@@ -1359,13 +1394,6 @@ Sound
             closeBid: () => closeBidButton?.click(),
             refresh: () => loadAuctionState(false)
         };
-
-        setInterval(() => {
-            if (!bidClosed && currentPlayer && auctionPlayers.length > 0 && Math.random() > 0.55) {
-                const autoStep = (Math.floor(Math.random() * 4) + 1) * 50000;
-                animateBidIncrease(autoStep, 'auto');
-            }
-        }, 4500);
 
         loadAuctionState(true);
     </script>
