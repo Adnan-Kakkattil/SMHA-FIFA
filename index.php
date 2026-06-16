@@ -318,10 +318,14 @@ $csrfToken = (string) $_SESSION['csrf_token'];
 
         .leaderboard-list {
             gap: 12px;
+            position: relative;
         }
 
         .leaderboard-item {
             padding: 14px;
+            transform-origin: center;
+            will-change: transform, opacity, filter;
+            transition: background 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
         }
 
         .ranking-footer {
@@ -401,8 +405,33 @@ $csrfToken = (string) $_SESSION['csrf_token'];
             animation: leader-pulse 1000ms cubic-bezier(0.2, 0, 0, 1);
         }
 
-        .leaderboard-item.bid-leader-pulse .bg-secondary {
+        .leaderboard-item.bid-leader-pulse .leader-bar {
             animation: leader-bar-charge 1000ms cubic-bezier(0.2, 0, 0, 1);
+        }
+
+        .leaderboard-item.rank-moving {
+            z-index: 8;
+            animation: rank-card-glow 1250ms cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .leaderboard-item.rank-up {
+            animation-name: rank-card-glow, rank-up-sheen;
+            animation-duration: 1250ms, 1050ms;
+            animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1), cubic-bezier(0.2, 0, 0, 1);
+        }
+
+        .leaderboard-item.rank-down {
+            animation-name: rank-card-settle;
+            animation-duration: 980ms;
+            animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .leaderboard-item.rank-new {
+            animation: rank-card-enter 850ms cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+
+        .leaderboard-item.rank-top {
+            box-shadow: 0 0 26px rgba(0, 200, 83, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.14);
         }
 
         .bid-button-fired {
@@ -519,6 +548,28 @@ $csrfToken = (string) $_SESSION['csrf_token'];
             0% { filter: brightness(1); box-shadow: 0 0 10px rgba(0,200,83,0.5); }
             38% { filter: brightness(1.6); box-shadow: 0 0 24px rgba(0,255,65,0.78), 0 0 44px rgba(0,150,255,0.28); }
             100% { filter: brightness(1); box-shadow: 0 0 10px rgba(0,200,83,0.5); }
+        }
+
+        @keyframes rank-card-glow {
+            0% { filter: brightness(1); box-shadow: none; }
+            24% { filter: brightness(1.22) saturate(1.18); box-shadow: 0 0 34px rgba(0, 200, 83, 0.34), 0 0 28px rgba(0, 150, 255, 0.18); }
+            100% { filter: brightness(1); box-shadow: none; }
+        }
+
+        @keyframes rank-up-sheen {
+            0% { background: rgba(255, 255, 255, 0.055); }
+            34% { background: linear-gradient(90deg, rgba(0, 200, 83, 0.2), rgba(255, 218, 55, 0.12)); }
+            100% { background: rgba(255, 255, 255, 0.055); }
+        }
+
+        @keyframes rank-card-settle {
+            0% { filter: brightness(1.12); }
+            100% { filter: brightness(1); }
+        }
+
+        @keyframes rank-card-enter {
+            0% { opacity: 0; transform: translateY(16px) scale(0.98); filter: brightness(1.2); }
+            100% { opacity: 1; transform: translateY(0) scale(1); filter: brightness(1); }
         }
 
         @keyframes button-kick {
@@ -915,8 +966,67 @@ Sound
             if (closeBidButton) closeBidButton.disabled = !enabled;
         }
 
+        function captureLeaderboardLayout() {
+            const snapshot = new Map();
+            if (!leaderboardList) return snapshot;
+
+            leaderboardList.querySelectorAll('.leaderboard-item[data-team-id]').forEach((row) => {
+                snapshot.set(row.dataset.teamId, {
+                    rect: row.getBoundingClientRect(),
+                    rank: Number(row.dataset.rank || 0),
+                    amount: Number(row.dataset.amount || 0)
+                });
+            });
+
+            return snapshot;
+        }
+
+        function animateLeaderboardShift(previousLayout) {
+            if (reduceMotion || !leaderboardList || previousLayout.size === 0) return;
+
+            window.requestAnimationFrame(() => {
+                leaderboardList.querySelectorAll('.leaderboard-item[data-team-id]').forEach((row) => {
+                    const previous = previousLayout.get(row.dataset.teamId);
+                    const currentRank = Number(row.dataset.rank || 0);
+                    const currentAmount = Number(row.dataset.amount || 0);
+
+                    if (!previous) {
+                        restartClass(row, 'rank-new', 900);
+                        return;
+                    }
+
+                    const next = row.getBoundingClientRect();
+                    const deltaX = previous.rect.left - next.left;
+                    const deltaY = previous.rect.top - next.top;
+                    const rankChanged = previous.rank !== currentRank;
+                    const amountChanged = previous.amount !== currentAmount;
+
+                    if (Math.abs(deltaX) > 1 || Math.abs(deltaY) > 1) {
+                        row.animate([
+                            { transform: `translate(${deltaX}px, ${deltaY}px) scale(0.985)`, filter: 'brightness(1.18)' },
+                            { transform: 'translate(0, 0) scale(1.018)', offset: 0.72, filter: 'brightness(1.16)' },
+                            { transform: 'translate(0, 0) scale(1)', filter: 'brightness(1)' }
+                        ], {
+                            duration: Math.min(1180, 720 + Math.abs(deltaY) * 2),
+                            easing: 'cubic-bezier(0.16, 1, 0.3, 1)'
+                        });
+
+                        row.classList.add('rank-moving');
+                        row.classList.toggle('rank-up', currentRank < previous.rank);
+                        row.classList.toggle('rank-down', currentRank > previous.rank);
+                        window.setTimeout(() => {
+                            row.classList.remove('rank-moving', 'rank-up', 'rank-down');
+                        }, 1300);
+                    } else if (amountChanged || rankChanged) {
+                        restartClass(row, 'rank-moving', 1100);
+                    }
+                });
+            });
+        }
+
         function renderLeaderboard(teams = []) {
             if (!leaderboardList) return;
+            const previousLayout = captureLeaderboardLayout();
             topLeaderRow = null;
             topLeaderBid = null;
             topLeaderBar = null;
@@ -948,7 +1058,10 @@ Sound
                 const accent = accents[index] || accents[4];
                 const width = amount > 0 ? Math.max(10, Math.round((amount / maxAmount) * 100)) : 0;
                 const row = document.createElement('div');
-                row.className = 'relative leaderboard-item rounded-2xl bg-white/5 border-l-4 group hover:bg-white/10 transition-colors';
+                row.className = `relative leaderboard-item rounded-2xl bg-white/5 border-l-4 group hover:bg-white/10 transition-colors ${rank === 1 ? 'rank-top' : ''}`;
+                row.dataset.teamId = String(team.id);
+                row.dataset.rank = String(rank);
+                row.dataset.amount = String(amount);
                 row.style.borderLeftColor = accent;
                 row.innerHTML = `
                     <div class="flex justify-between items-center mb-xs">
@@ -969,6 +1082,8 @@ Sound
                     topLeaderBar = row.querySelector('.leader-bar');
                 }
             });
+
+            animateLeaderboardShift(previousLayout);
         }
 
         function setNoPlayersState(message = 'No players available') {
